@@ -1,0 +1,26 @@
+# 精簡版：只有 dealwatch，沒有瀏覽器容器。給記憶體小、跑不動 Chromium 的 NAS 用。
+# Walmart 只會用直接請求的方式抓，被擋時沒有瀏覽器可以接手（會自動拉長間隔重試）。
+# 用法：docker compose -f docker-compose.lite.yml up -d
+services:
+  dealwatch:
+    image: node:22-alpine
+    container_name: dealwatch
+    working_dir: /app
+    command: ["node", "dealwatch.mjs", "ui"]
+    env_file: .env
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      - UI_HOST=0.0.0.0
+      - UI_PORT=8787
+      - WALMART_VIA=http
+    volumes:
+      - ./:/app
+    ports:
+      - "${HOST_UI_PORT:-8787}:8787"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

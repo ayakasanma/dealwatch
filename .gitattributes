@@ -1,0 +1,3 @@
+# shell 腳本和 compose 檔在 NAS / Linux 上要是 LF，Windows 批次檔要是 CRLF
+* text=auto eol=lf
+*.bat text eol=crlf

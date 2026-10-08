@@ -1,0 +1,53 @@
+# dealwatch on Synology DSM 7（Container Manager），也適用任何有 Docker 的 Linux 主機。
+# 部署步驟見 synology/README.md。先把 .env.example 複製成 .env 並填好。
+#
+# 兩個容器共用同一個網路空間：dealwatch 透過 127.0.0.1:9222 遙控 browser 裡的 Chromium，
+# 這個除錯埠不對外開放。對外只開兩個埠：網頁介面，以及遠端看瀏覽器畫面用的埠。
+services:
+  # 給 Walmart 用的 Chromium。它有畫面，可以從別台電腦用瀏覽器連進來看，
+  # 遇到人機驗證或想登入 Walmart 帳號時就從這裡操作。
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: dealwatch-browser
+    environment:
+      - PUID=${PUID:-1026}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-America/Chicago}
+      - CHROME_CLI=--remote-debugging-port=9222 --user-data-dir=/config/dealwatch-profile --no-first-run --no-default-browser-check https://www.walmart.com/
+      # 遠端畫面的登入帳密；密碼跟網頁介面共用同一個
+      - CUSTOM_USER=${VIEW_USER:-dealwatch}
+      - PASSWORD=${UI_PASSWORD:-}
+    volumes:
+      - ./data/browser:/config
+    ports:
+      - "${HOST_UI_PORT:-8787}:8787"     # dealwatch 網頁介面（http）
+      - "${HOST_VIEW_PORT:-3001}:3001"   # 遠端瀏覽器畫面（https，自簽憑證）
+    shm_size: "1gb"
+    security_opt:
+      - seccomp:unconfined   # 舊核心的 NAS 上 Chromium 需要
+    restart: unless-stopped
+
+  dealwatch:
+    image: node:22-alpine
+    container_name: dealwatch
+    network_mode: "service:browser"
+    depends_on:
+      - browser
+    working_dir: /app
+    command: ["node", "dealwatch.mjs", "ui"]
+    env_file: .env
+    environment:
+      - TZ=${TZ:-America/Chicago}
+      - UI_HOST=0.0.0.0
+      - UI_PORT=8787
+      - DEALWATCH_CDP_URL=http://127.0.0.1:9222
+      - BROWSER_VIEW_PORT=${HOST_VIEW_PORT:-3001}
+    volumes:
+      - ./:/app   # 程式沒有任何 npm 依賴，直接掛進去跑；狀態寫在 ./data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/healthz"]
+      interval: 1m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped

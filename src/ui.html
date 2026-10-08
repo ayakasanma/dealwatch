@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dealwatch</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --line: #e3e6ea; --text: #1c2026; --dim: #6b7380;
+    --accent: #0b63ce; --steal: #0a7d3f; --steal-bg: #e8f6ee; --warn: #b45309; --bad: #c0362c; --chip: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b; --panel: #1c2026; --line: #2c323a; --text: #e6e9ed; --dim: #8c95a1;
+      --accent: #5aa2ff; --steal: #4ecb85; --steal-bg: #16301f; --warn: #e2a13c; --bad: #ef6b60; --chip: #272c34;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, "Segoe UI", "Microsoft JhengHei", sans-serif; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  .top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 17px; margin: 0 8px 0 0; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: var(--chip); font-size: 12.5px; color: var(--dim); }
+  .pill b { color: var(--text); font-weight: 600; }
+  .pill.err { color: var(--bad); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--steal); }
+  .dot.busy { background: var(--warn); animation: pulse 1s infinite; }
+  .dot.err { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .spacer { flex: 1; }
+  button, select, input[type=search] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; padding: 5px 11px; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  label.check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  input[type=search] { width: 220px; }
+  main { padding: 12px 16px 40px; }
+  details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 12px; }
+  summary { padding: 8px 12px; cursor: pointer; font-weight: 600; }
+  .alerts { max-height: 220px; overflow: auto; border-top: 1px solid var(--line); }
+  .alert { display: flex; gap: 10px; padding: 6px 12px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .alert:last-child { border-bottom: 0; }
+  .alert time { color: var(--dim); white-space: nowrap; }
+  .tag { font-weight: 600; white-space: nowrap; }
+  .tag.STEAL { color: var(--steal); } .tag.NEW { color: var(--accent); } .tag.DROP { color: var(--warn); }
+  .wrap { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 6px 8px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--line); }
+  th { position: sticky; top: 0; background: var(--panel); color: var(--dim); font-weight: 600; cursor: pointer; user-select: none; }
+  th.sorted { color: var(--text); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.name { white-space: normal; min-width: 220px; max-width: 460px; }
+  /* 視窗窄的時候表格會左右捲，價格和按鈕固定在右邊 */
+  td:nth-last-child(-n+2), th:nth-last-child(-n+2) { position: sticky; background: var(--panel); }
+  td:last-child, th:last-child { right: 0; width: 96px; }
+  td:nth-last-child(2), th:nth-last-child(2) { right: 96px; box-shadow: -6px 0 6px -6px rgba(0, 0, 0, .25); }
+  th:nth-last-child(-n+2) { z-index: 2; }
+  td.name a { color: inherit; text-decoration: none; }
+  td.name a:hover { color: var(--accent); text-decoration: underline; }
+  .sub { color: var(--dim); font-size: 12px; }
+  tr.steal td, tr.steal td:nth-last-child(-n+2) { background: var(--steal-bg); }
+  .star { color: var(--steal); font-weight: 700; }
+  .off { color: var(--steal); font-weight: 600; }
+  .store { font-weight: 600; font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--chip); }
+  .empty { padding: 32px; text-align: center; color: var(--dim); }
+  .linkbtn { color: var(--text); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; }
+  .linkbtn:hover { border-color: var(--accent); }
+  [hidden] { display: none !important; }
+  .pill button { border: 0; background: transparent; padding: 0 2px; color: var(--accent); font-size: 12px; }
+  .banner { margin-top: 10px; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--warn); color: var(--warn); }
+  .banner a { color: var(--accent); font-weight: 600; }
+  .log { margin: 0; padding: 10px 12px; max-height: 320px; overflow: auto; border-top: 1px solid var(--line); font: 12px/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; }
+  .count { color: var(--dim); margin: 0 0 8px 2px; font-size: 13px; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>dealwatch</h1>
+    <span id="stores"></span>
+    <span class="pill" id="market"></span>
+    <span class="spacer"></span>
+    <a id="view" class="linkbtn" target="_blank" rel="noopener" hidden title="遠端看 Walmart 用的瀏覽器畫面（處理人機驗證 / 登入）">遠端瀏覽器</a>
+    <button id="pushtest" title="送一則測試推播">測試推播</button>
+    <button class="primary" id="rescan">立刻重掃</button>
+  </div>
+  <div class="banner" id="banner" hidden></div>
+  <div class="filters">
+    <span class="seg" id="store"></span>
+    <span class="seg" id="cat"></span>
+    <label class="check"><input type="checkbox" id="steals"> 只看 ★ 撿漏</label>
+    <select id="minoff">
+      <option value="0">折扣不限</option><option value="10">折 10% 以上</option><option value="20">折 20% 以上</option><option value="30">折 30% 以上</option>
+    </select>
+    <input type="search" id="q" placeholder="搜尋名稱 / 型號 / 賣家">
+  </div>
+</header>
+<main>
+  <details id="alertBox" open>
+    <summary>最近提醒 <span class="sub" id="alertCount"></span></summary>
+    <div class="alerts" id="alerts"></div>
+  </details>
+  <p class="count" id="count"></p>
+  <div class="wrap"><table>
+    <thead><tr id="head"></tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+  <details id="logBox" style="margin-top:12px">
+    <summary>執行紀錄</summary>
+    <pre class="log" id="log"></pre>
+  </details>
+</main>
+<div id="toast"></div>
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+const money = n => n == null ? '' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+const ago = t => { if (!t) return '尚未完成'; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s} 秒前` : s < 3600 ? `${Math.round(s / 60)} 分鐘前` : `${Math.round(s / 3600)} 小時前`; };
+const CAT = { laptop: '筆電', desktop: '整機', cpu: 'CPU', gpu: '顯卡', ram: '記憶體' };
+const WHY = { STEAL: '撿漏', NEW: '上新', DROP: '降價' };
+
+const saved = JSON.parse(localStorage.getItem('dealwatch') || '{}');
+const view = { store: 'all', cat: 'all', steals: false, minoff: 0, q: '', sort: 'default', dir: 1, ...saved };
+const persist = () => localStorage.setItem('dealwatch', JSON.stringify(view));
+let data = null;
+
+const COLS = [
+  { key: 'star', label: '★', get: i => i.deal?.steal ? 1 : 0 },
+  { key: 'store', label: '店', get: i => i.store },
+  { key: 'cat', label: '類', get: i => i.cat },
+  { key: 'cond', label: '狀態', get: i => i.cond },
+  { key: 'name', label: '商品', get: i => i.name },
+  { key: 'cpu', label: 'CPU', get: i => i.specs.cpu },
+  { key: 'gpu', label: 'GPU', get: i => i.specs.gpuScore },
+  { key: 'ram', label: 'RAM', get: i => parseInt(i.specs.ram) || 0 },
+  { key: 'disk', label: '硬碟', get: i => i.specs.disk },
+  { key: 'seller', label: '賣家', get: i => i.seller },
+  { key: 'sum', label: '估值', num: true, get: i => i.deal?.sum ?? 0 },
+  { key: 'ref', label: '原價', num: true, get: i => i.ref ?? 0 },
+  { key: 'off', label: '折', num: true, get: i => i.off },
+  { key: 'price', label: '價格', num: true, get: i => i.price },
+  { key: 'act', label: '' },
+];
+
+function seg(el, options, field) {
+  el.innerHTML = options.map(([v, label]) => `<button data-v="${esc(v)}" class="${view[field] === v ? 'on' : ''}">${esc(label)}</button>`).join('');
+  el.onclick = e => { const v = e.target.dataset.v; if (v == null) return; view[field] = v; persist(); render(); };
+}
+
+function filtered() {
+  const q = view.q.trim().toLowerCase();
+  let items = data.items.filter(i =>
+    (view.store === 'all' || i.store === view.store) &&
+    (view.cat === 'all' || i.cat === view.cat) &&
+    (!view.steals || i.deal?.steal) &&
+    i.off >= view.minoff &&
+    (!q || `${i.name} ${i.seller} ${i.id} ${i.specs.cpu} ${i.specs.gpu}`.toLowerCase().includes(q)));
+  const col = COLS.find(c => c.key === view.sort);
+  if (col?.get) items = [...items].sort((a, b) => { const x = col.get(a), y = col.get(b); return (x > y ? 1 : x < y ? -1 : 0) * view.dir; });
+  return items;
+}
+
+function priceCell(i) {
+  const hist = i.hist?.length > 1 ? `<div class="sub">${i.hist.map(money).join(' → ')}</div>` : '';
+  const others = i.offers?.length > 1 ? `<div class="sub">${i.offers.slice(1).map(o => `${esc(o.cond)} ${money(o.price)}`).join(' · ')}</div>` : '';
+  return `<b>${money(i.price)}</b>${hist}${others}`;
+}
+
+function render() {
+  if (!data) return;
+  $('stores').innerHTML = Object.entries(data.stores).map(([id, s]) => {
+    const failing = s.error && !s.count;
+    const cls = s.paused ? 'err' : failing ? 'err' : s.scanning ? 'busy' : '';
+    const detail = s.paused ? '已暫停' : failing ? esc(s.error) : s.t ? `${s.count ?? 0} 筆 · ${ago(s.t)}${s.viaBrowser ? ' · 經瀏覽器' : ''}` : '第一次掃描中…';
+    return `<span class="pill ${failing && !s.paused ? 'err' : ''}" title="${esc(s.error || '')}"><span class="dot ${cls}"></span><b>${esc(s.name)}</b> ${detail}
+      <button data-pause="${esc(id)}" data-on="${s.paused ? 0 : 1}">${s.paused ? '恢復' : '暫停'}</button></span> `;
+  }).join('');
+  $('market').textContent = data.market ? `撿漏以 MSRP 為準 · 市價表 ${ago(data.market)}更新` : '市價表尚未建立';
+  $('market').title = '筆電規則：\n' + data.steals.rules.join('\n');
+  $('pushtest').hidden = !data.push.length;
+  $('pushtest').title = '送一則測試推播到 ' + data.push.join(', ');
+
+  // dealwatch 跑在別台機器（NAS）時，Walmart 用的瀏覽器畫面要從這個網址遠端看
+  const viewUrl = data.browserViewUrl || (data.browserViewPort ? `https://${location.hostname}:${data.browserViewPort}/` : '');
+  $('view').hidden = !viewUrl;
+  $('view').href = viewUrl;
+
+  // 需要人去按驗證的時候，把入口直接擺在最上面
+  const needsHuman = Object.values(data.stores).some(s => s.needsHuman && s.error && !s.paused);
+  $('banner').hidden = !needsHuman;
+  if (needsHuman) $('banner').innerHTML = 'Walmart 要求人機驗證，需要你親手按一下。' + (viewUrl
+    ? `<a href="${esc(viewUrl)}" target="_blank" rel="noopener">開啟遠端瀏覽器視窗</a>，完成後回來按「立刻重掃」。`
+    : '請到 dealwatch 開的那個瀏覽器視窗完成，再按「立刻重掃」。');
+
+  seg($('store'), [['all', '全部'], ...Object.entries(data.stores).map(([k, s]) => [k, s.name])], 'store');
+  seg($('cat'), [['all', '全部'], ...data.cats.map(c => [c, CAT[c] ?? c])], 'cat');
+  $('steals').checked = view.steals; $('minoff').value = view.minoff; if (document.activeElement !== $('q')) $('q').value = view.q;
+
+  $('head').innerHTML = COLS.map(c => `<th data-k="${c.key}" class="${c.num ? 'num ' : ''}${view.sort === c.key ? 'sorted' : ''}">${c.label}${view.sort === c.key ? (view.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`).join('');
+
+  const items = filtered();
+  const stealCount = data.items.filter(i => i.deal?.steal).length;
+  $('count').textContent = `顯示 ${items.length} / ${data.items.length} 筆，其中 ★ 撿漏 ${stealCount} 筆`;
+  $('rows').innerHTML = items.length ? items.map(i => `
+    <tr class="${i.deal?.steal ? 'steal' : ''}">
+      <td class="star" title="${esc(i.deal?.reason || '')}">${i.deal?.steal ? '★' : ''}</td>
+      <td><span class="store">${i.store === 'bb' ? 'BB' : 'WM'}</span></td>
+      <td>${esc(CAT[i.cat] ?? i.cat)}</td>
+      <td>${esc(i.cond)}</td>
+      <td class="name"><a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.name)}</a>${i.deal?.reason ? `<div class="sub">${esc(i.deal.reason)}</div>` : ''}</td>
+      <td>${esc(i.specs.cpu)}</td><td>${esc(i.specs.gpu)}</td><td>${esc(i.specs.ram)}</td><td>${esc(i.specs.disk)}</td>
+      <td>${esc(i.seller)}</td>
+      <td class="num">${i.deal?.sum ? money(i.deal.sum) : ''}</td>
+      <td class="num">${i.ref ? money(i.ref) : ''}</td>
+      <td class="num off">${i.off ? `-${i.off}%` : ''}</td>
+      <td class="num">${priceCell(i)}</td>
+      <td><button data-cart="${esc(i.cartUrl)}" data-store="${i.store}">加入購物車</button></td>
+    </tr>`).join('') : `<tr><td colspan="${COLS.length}" class="empty">${data.items.length ? '沒有符合篩選條件的商品' : '還在等第一次掃描完成…'}</td></tr>`;
+
+  $('alertCount').textContent = data.alerts.length ? `（${data.alerts.length}）` : '（目前沒有）';
+  $('alerts').innerHTML = data.alerts.map(a => `
+    <div class="alert"><time>${new Date(a.t).toLocaleTimeString()}</time>
+      <span class="tag ${a.why}">${WHY[a.why]}${a.why === 'DROP' ? ` ${money(a.prev)}→${money(a.price)}` : ''}</span>
+      <span>${a.store === 'bb' ? 'Best Buy' : 'Walmart'} ${esc(a.cond)} <b>${money(a.price)}</b> ${esc(a.name)}${a.reason ? `<div class="sub">${esc(a.reason)}</div>` : ''}</span>
+      <span class="spacer"></span><button data-cart="${esc(a.cartUrl)}" data-store="${a.store}">加入購物車</button></div>`).join('');
+}
+
+// 在「你現在看這個頁面的瀏覽器」開分頁，所以用的是這台電腦上已登入的帳號，跟 dealwatch 跑在哪台機器無關
+const BB_CHECKOUT = 'https://www.bestbuy.com/checkout/r/fast-track';
+function openCart(url, store) {
+  if (store === 'wm') { window.open(url.replace('/cart/addToCart?', '/cart/buynow?'), '_blank'); return; }
+  const tab = window.open(url, '_blank');
+  // Best Buy：等加入購物車完成，再把同一個分頁帶到結帳頁
+  setTimeout(() => { try { tab.location.href = BB_CHECKOUT; } catch {} }, 3500);
+}
+
+async function loadLog() {
+  if (!$('logBox').open) return;
+  const el = $('log'), atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent = (await (await fetch('/api/log')).json()).lines.join('\n');
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove('show'), 2500); }
+const post = path => fetch(path, { method: 'POST', headers: { 'x-dealwatch': '1' } }).then(r => r.json());
+
+async function refresh() {
+  try { data = await (await fetch('/api/state')).json(); render(); loadLog(); }
+  catch { toast('連不上 dealwatch，程式是不是關掉了？'); }
+}
+
+document.addEventListener('click', async e => {
+  const { cart, store, pause, on } = e.target.dataset ?? {};
+  if (cart) { openCart(cart, store); toast('已在新分頁開啟加入購物車'); return; }
+  if (pause) { await post(`/api/pause?store=${encodeURIComponent(pause)}&on=${on}`); refresh(); return; }
+  const k = e.target.closest('th')?.dataset.k;
+  if (k && COLS.find(c => c.key === k)?.get) { view.dir = view.sort === k ? -view.dir : (COLS.find(c => c.key === k).num || k === 'star' || k === 'gpu' ? -1 : 1); view.sort = k; persist(); render(); }
+});
+$('rescan').onclick = async () => { await post('/api/rescan'); toast('已觸發重新掃描'); setTimeout(refresh, 1500); };
+$('pushtest').onclick = async () => { const r = await post('/api/notify-test'); toast(r.ok ? '測試推播已送出' : '推播失敗，請看下方執行紀錄'); };
+$('logBox').ontoggle = loadLog;
+$('steals').onchange = e => { view.steals = e.target.checked; persist(); render(); };
+$('minoff').onchange = e => { view.minoff = +e.target.value; persist(); render(); };
+$('q').oninput = e => { view.q = e.target.value; persist(); render(); };
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>
