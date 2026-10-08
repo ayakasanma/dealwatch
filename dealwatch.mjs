@@ -88,6 +88,7 @@ const stores = flags.store ? [flags.store] : Object.keys(STORES);
 const cats = Object.entries(config.categories).filter(([name]) => !flags.cat || flags.cat.split(',').includes(name));
 const catNames = cats.map(([name]) => name);
 const failed = r => r.blocked || (r.errors.length > 0 && !r.items.length);
+const watchlist = (config.watchlist ?? []).map(parseWatch).filter(w => w && (!flags.store || w.store === flags.store));
 const time = () => new Date().toTimeString().slice(0, 8);
 setPace('wm', 2, config.walmart.gapMs);
 
@@ -159,10 +160,56 @@ async function scanStore(store) {
       if (hit) found.set(item.key, hit);
     }
   });
+  // 指定商品：不靠搜尋結果，直接查。缺貨或暫時查不到的只記狀態，不進清單
+  const mine = watchlist.filter(w => w.store === store);
+  const watch = await Promise.all(mine.map(async w => {
+    try {
+      const forms = await (store === 'bb' ? bestbuy.product(w.id) : walmart.product(w.id));
+      for (const item of forms.filter(keep)) {
+        const hit = found.get(item.key) ?? classify(item) ?? forceClassify(item);
+        if (hit) found.set(item.key, { ...hit, watch: w });
+      }
+      const best = forms.filter(f => f.price > 0).sort((a, b) => a.price - b.price)[0];
+      return best ? { ...w, name: best.name, price: best.price, cond: best.cond, inStock: forms.some(keep), url: best.url } : { ...w, error: '查不到這個商品' };
+    } catch (err) {
+      blocked ||= err instanceof Blocked;
+      errors.push(err.message);
+      return { ...w, error: err.message };
+    }
+  }));
   const items = [...found.values()];
   // 整輪失敗時不要用空結果蓋掉上一輪的行情
   if (items.length || !errors.length) await judgeItems(store, items);
-  return { store, items, errors: [...new Set(errors)], blocked, requests: jobs.length, raw, ms: Date.now() - t0 };
+  return { store, items, watch, errors: [...new Set(errors)], blocked, requests: jobs.length + mine.length, raw, ms: Date.now() - t0 };
+}
+
+function printWatch(list) {
+  if (!list.length) return;
+  console.log(c.bold('\n指定商品:'));
+  for (const w of list) {
+    const where = STORES[w.store];
+    if (w.error) console.log(`  ${where} ${w.id}  ${c.red(w.error)}`);
+    else console.log(`  ${where} ${w.id}  $${w.price}  ${w.inStock ? w.cond : c.yellow('缺貨')}${w.maxPrice ? `  到價通知 $${w.maxPrice}` : ''}  ${w.name.slice(0, 70)}`);
+  }
+}
+
+// 指定商品不套分類的過濾條件（等級、價格下限等），只用商品類型決定歸到哪一類
+function forceClassify(item) {
+  const name = Object.keys(config.categories).find(n => config.categories[n].type?.test(item.type || item.name));
+  return name ? { ...item, cat: name, specs: parseSpecs(item.name), off: offPct(item) } : null;
+}
+
+// config.watchlist 的每一項可以是網址，或 { store: 'bb'|'wm', id, maxPrice }
+function parseWatch(entry) {
+  const w = typeof entry === 'string' ? { url: entry } : { ...entry };
+  if (w.store && w.id) return { ...w, id: String(w.id) };
+  const url = w.url ?? '';
+  const wm = /walmart\.com\/ip\/(?:[^/?#]+\/)?(\d+)/.exec(url);
+  const bb = /bestbuy\.com\/.*?(?:\/sku\/|skuId=|\/)(\d{7,8})(?:\.p)?(?=[/?#]|$)/.exec(url);
+  if (wm) return { ...w, store: 'wm', id: wm[1] };
+  if (bb) return { ...w, store: 'bb', id: bb[1] };
+  console.error(c.red(`指定商品看不出是哪家店的哪個商品，已略過: ${url}（Best Buy 請用含 /sku/數字 的網址，或寫成 { store: 'bb', id: 'SKU' }）`));
+  return null;
 }
 
 // 市價表每隔幾小時從 Best Buy 目錄重建一次
@@ -199,7 +246,12 @@ async function judgeItems(store, items) {
   const all = Object.values(lastItems).flat();
   const market = await loadMarket();
   const priceOf = makePricer(market, all, config.steals.override);
-  for (const item of items) item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
+  for (const item of items) {
+    item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
+    // 指定商品有設到價通知的話，到價就算撿漏
+    const target = item.watch?.maxPrice;
+    if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 $${item.price}，你設定 $${target} 以下通知` };
+  }
   // 判斷完才把這一輪的行情併進市價表。撿漏本身不併，它還在的期間才會一直維持 ★
   if (market && foldMarket(market, items.filter(i => !i.deal?.steal))) state.writeJson('market.json', market);
 }
@@ -234,6 +286,7 @@ async function cmdScan() {
   printTable(items);
   console.log();
   for (const r of results) console.log(c.dim(summary(r)));
+  printWatch(results.flatMap(r => r.watch));
   if (alerts.length) { console.log(c.bold(`\n和上次相比有 ${alerts.length} 則變動:`)); for (const a of alerts.slice(0, 40)) console.log(alertLine(a)); }
   const steals = items.filter(i => i.deal?.steal);
   if (steals.length) { console.log(c.bold(`\n★ 撿漏 ${steals.length} 筆:`)); for (const item of steals) console.log(alertLine({ why: 'STEAL', item })); }
@@ -356,6 +409,7 @@ async function cmdWatch({ ui = false } = {}) {
   const status = {};  // store -> 最近一輪的結果摘要，給網頁顯示
   const wake = {};    // store -> 叫醒正在等下一輪的迴圈
   const paused = new Set(); // 被網頁介面暫停的店
+  const watchStatus = {};   // store -> 指定商品最近一次查到的狀態
 
   const handle = async (r, alerts) => {
     current[r.store] = r.items;
@@ -390,6 +444,7 @@ async function cmdWatch({ ui = false } = {}) {
       }
       status[store] = { ...status[store], scanning: true, paused: false };
       const r = await scanStore(store);
+      watchStatus[store] = r.watch;
       const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: store === 'wm' && walmart.usingBrowser() };
       if (failed(r)) {
         if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
@@ -425,6 +480,7 @@ async function cmdWatch({ ui = false } = {}) {
         alerts: recent.slice(-60).reverse().map(a => ({ t: a.t, why: a.why, prev: a.prev, key: a.item.key, name: a.item.name, price: a.item.price, store: a.item.store, cond: a.item.cond, cartUrl: a.item.cartUrl, reason: a.item.deal?.reason })),
         market: state.readJson('market.json')?.t ?? null,
         cats: catNames,
+        watchlist: stores.flatMap(s => watchStatus[s] ?? []),
         steals: { rules: config.steals.rules.map(r => r.name) },
         browserViewUrl: uiCfg.browserViewUrl, browserViewPort: uiCfg.browserViewPort,
         push: Object.entries(pushTargets(config.notify)).filter(([k, v]) => ['line', 'discord', 'telegramToken', 'ntfy'].includes(k) && v).map(([k]) => k.replace('Token', '')),

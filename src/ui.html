@@ -106,6 +106,10 @@
     <summary>最近提醒 <span class="sub" id="alertCount"></span></summary>
     <div class="alerts" id="alerts"></div>
   </details>
+  <details id="watchBox" open hidden>
+    <summary>指定商品 <span class="sub">每輪直接查價格與庫存</span></summary>
+    <div class="alerts" id="watch"></div>
+  </details>
   <p class="count" id="count"></p>
   <div class="wrap"><table>
     <thead><tr id="head"></tr></thead>
@@ -222,6 +226,16 @@ function render() {
       <td class="num">${priceCell(i)}</td>
       <td><button data-cart="${esc(i.cartUrl)}" data-store="${i.store}">加入購物車</button></td>
     </tr>`).join('') : `<tr><td colspan="${COLS.length}" class="empty">${data.items.length ? '沒有符合篩選條件的商品' : '還在等第一次掃描完成…'}</td></tr>`;
+
+  $('watchBox').hidden = !data.watchlist.length;
+  $('watch').innerHTML = data.watchlist.map(w => {
+    const store = w.store === 'bb' ? 'Best Buy' : 'Walmart';
+    if (w.error) return `<div class="alert"><span class="tag DROP">查詢失敗</span><span>${store} ${esc(w.id)} <span class="sub">${esc(w.error)}</span></span></div>`;
+    const steal = data.items.some(i => i.store === w.store && i.id === w.id && i.deal?.steal);
+    return `<div class="alert"><span class="tag ${steal ? 'STEAL' : w.inStock ? 'NEW' : 'DROP'}">${steal ? '★ 撿漏' : w.inStock ? '有貨' : '缺貨'}</span>
+      <span>${store} ${esc(w.inStock ? w.cond : '')} <b>${money(w.price)}</b> <a href="${esc(w.url)}" target="_blank" rel="noopener" style="color:inherit">${esc(w.name)}</a>
+      ${w.maxPrice ? `<div class="sub">到價通知：${money(w.maxPrice)} 以下</div>` : ''}</span></div>`;
+  }).join('');
 
   $('alertCount').textContent = data.alerts.length ? `（${data.alerts.length}）` : '（目前沒有）';
   $('alerts').innerHTML = data.alerts.map(a => `

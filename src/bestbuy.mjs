@@ -1,7 +1,9 @@
 // Best Buy：走官網前端用的 GraphQL gateway（GET），一次請求拿到整頁商品與每個 open-box 成色的價格。
 import { get, Blocked } from './http.mjs';
 
-const QUERY = 'query S($input:SearchInput!$pagination:SearchPagination!$filter:SearchFilter$sort:SearchSort$price:ProductItemPriceInput!){search(input:$input pagination:$pagination filter:$filter sort:$sort){numFound documents{...on SearchProduct{product{skuId condition{type}name{short}whatItIs url{pdp}seller{classification}price(input:$price){customerPrice displayableRegularPrice}buyingOptions{type pdpUrl product{skuId openBoxCondition price(input:$price){customerPrice}}}}}}}}';
+const PRODUCT_FIELDS = 'skuId condition{type}name{short}whatItIs url{pdp}seller{classification}price(input:$price){customerPrice displayableRegularPrice}buyingOptions{type pdpUrl product{skuId openBoxCondition price(input:$price){customerPrice}}}';
+const SEARCH_QUERY = `query S($input:SearchInput!$pagination:SearchPagination!$filter:SearchFilter$sort:SearchSort$price:ProductItemPriceInput!){search(input:$input pagination:$pagination filter:$filter sort:$sort){numFound documents{...on SearchProduct{product{${PRODUCT_FIELDS}}}}}}`;
+const PRODUCT_QUERY = `query P($id:String!$price:ProductItemPriceInput!){productBySkuId(skuId:$id){${PRODUCT_FIELDS}}}`;
 
 const PRICE_INPUT = { salesChannel: 'LargeView', context: 'plp', displayLocation: 'medium-plp' };
 
@@ -11,9 +13,16 @@ export const cartUrl = (sku, obCode) =>
 
 export const CHECKOUT_URL = 'https://www.bestbuy.com/checkout/r/fast-track';
 
+async function gql(query, variables) {
+  const url = `https://www.bestbuy.com/gateway/graphql?query=${encodeURIComponent(query)}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
+  const { status, body } = await get('bb', url);
+  if (status === 403 || status === 429) throw new Blocked(`Best Buy 回應 HTTP ${status}`);
+  try { return JSON.parse(body); } catch { throw new Blocked(`Best Buy 回應非 JSON (HTTP ${status})`); }
+}
+
 // condition: 'Open-Box' | 'Refurbished' | 'New' | null(不限)
 export async function search({ query, condition = null, page = 1, size = 100, sort = '', zip = '' }) {
-  const variables = {
+  const json = await gql(SEARCH_QUERY, {
     input: { site: 'WWW', queryType: 'SEARCH', query },
     pagination: { pageNumber: page, offset: size },
     filter: {
@@ -27,19 +36,21 @@ export async function search({ query, condition = null, page = 1, size = 100, so
     },
     sort: { sort },
     price: PRICE_INPUT,
-  };
-  const url = `https://www.bestbuy.com/gateway/graphql?query=${encodeURIComponent(QUERY)}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
-  const { status, body } = await get('bb', url);
-  if (status === 403 || status === 429) throw new Blocked(`Best Buy 回應 HTTP ${status}`);
-  let json;
-  try { json = JSON.parse(body); } catch { throw new Blocked(`Best Buy 回應非 JSON (HTTP ${status})`); }
+  });
   const result = json.data?.search;
-  // 個別商品的欄位錯誤會以 partial error 回來，有 documents 就照用；查無結果有時會回 NOT_FOUND
+  // 個別商品的欄位錯誤會以 partial error 回來，有 documents 就照用；查無結果時 documents 是 null
   if (!result?.documents) {
-    if (json.errors?.length && json.errors.every(e => e.extensions?.code === 'NOT_FOUND')) return { total: 0, items: [] };
-    throw new Error(`Best Buy 查詢失敗: ${JSON.stringify(json.errors ?? json).slice(0, 200)}`);
+    if (!json.errors?.length || json.errors.every(e => e.extensions?.code === 'NOT_FOUND')) return { total: 0, items: [] };
+    throw new Error(`Best Buy 查詢失敗: ${JSON.stringify(json.errors).slice(0, 200)}`);
   }
   return { total: result.numFound ?? 0, items: result.documents.flatMap(d => normalize(d.product, condition)) };
+}
+
+// 直接用 SKU 查單一商品。回傳它目前所有買得到的形式：本身（全新或整新），以及有的話 open-box
+export async function product(sku) {
+  const p = (await gql(PRODUCT_QUERY, { id: String(sku), price: PRICE_INPUT })).data?.productBySkuId;
+  if (!p?.skuId) return [];
+  return [...normalize(p, 'Open-Box'), ...normalize(p, null)];
 }
 
 function normalize(p, condition) {

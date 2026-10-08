@@ -79,12 +79,25 @@ export default {
       'gpu:5090': 2500,
     },
     // 估不出零件價的品項（筆電）用規則，命中任一條就算撿漏。可用欄位：
-    //   store ('bb'|'wm')、cat、match（比對標題）、gpu（比對 gpu 欄）、minGpu（效能至少這個等級）、maxPrice
+    //   store ('bb'|'wm')、cat、match（比對標題）、cpu / gpu（比對表格的 cpu / gpu 欄）、minGpu（效能至少這個等級）、
+    //   minRamGB、kind（'ob' open-box、'refurb' 整新、'new' 全新）、maxPrice
     rules: [
+      {
+        name: 'ROG Zephyrus G14（386H / 5070 Ti / 32GB）open-box 或整新低於 $2200',
+        cat: 'laptop', match: /zephyrus\s*g14/i, cpu: /386H/, gpu: /^5070 Ti/, minRamGB: 32, kind: ['ob', 'refurb'], maxPrice: 2200,
+      },
       { name: 'Best Buy 5080 以上筆電低於 $2000', store: 'bb', cat: 'laptop', gpu: /^50(80|90)/, maxPrice: 2000 },
       { name: 'ROG Zephyrus 5070 Ti 以上低於 $2000', cat: 'laptop', match: /zephyrus/i, gpu: /^50(70 Ti|80|90)/, maxPrice: 2000 },
     ],
   },
+
+  // 指定商品：不靠搜尋結果，每輪直接查這幾件的價格和庫存（缺貨補貨、沒排進搜尋前幾頁的也抓得到）。
+  // 每一項可以是商品網址，或 { store: 'bb' | 'wm', id: 'SKU 或 item id' }。
+  // 照一般的撿漏標準判斷；另外加 maxPrice 的話，到那個價就一定通知，例如 { url: '...', maxPrice: 2400 }
+  watchlist: [
+    'https://www.walmart.com/ip/CyberPowerPC-Gaming-PC-AMD-Ryzen-7-9800X3D-NVIDIA-GeForce-RTX-5080-16GB-32GB-DDR5-1TB-SSD-SLC8500WST/20707507998',
+    { store: 'bb', id: '6679866' }, // ASUS ROG Zephyrus G14 14" 3K OLED / Core Ultra 9 386H / RTX 5070 Ti / 32GB / 1TB
+  ],
 
   // 每個分類：queries 是丟給兩家店的搜尋關鍵字，其餘是過濾條件
   //   type        站台商品類型（沒有類型時比對標題）

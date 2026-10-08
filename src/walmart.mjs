@@ -20,6 +20,7 @@ export function searchUrl({ query, sort = 'new', page = 1, minPrice, maxPrice })
 // 取得頁面的兩條路：直接 HTTP 請求（快），或請一個真正的瀏覽器視窗載入（慢但不會被當成自動化流量）。
 // via: 'http' 只用 HTTP；'browser' 只用瀏覽器；'auto' 先試 HTTP，被擋就改用瀏覽器。
 let mode = 'http', browser = null, viaBrowser = false;
+const httpBlocked = { search: false, product: false };
 let queue = Promise.resolve();
 
 export function configure({ via = 'auto', browser: b = null, startInBrowser = false } = {}) {
@@ -47,17 +48,18 @@ function browserHtml(url) {
   return job;
 }
 
-export async function search(opts) {
-  const url = searchUrl(opts);
-  const result = items => ({ total: items.length, items });
-  if (!viaBrowser) {
-    try { return result(parse(await httpHtml(url))); }
+// 抓一頁並解析：先直接請求，被擋就改用瀏覽器。搜尋頁和商品頁被擋的情況不一樣，分開記。
+async function load(kind, url, parser) {
+  if (!viaBrowser && !httpBlocked[kind]) {
+    try { return parser(await httpHtml(url)); }
     catch (err) {
       if (!(err instanceof Blocked) || mode !== 'auto' || !browser) throw err;
-      viaBrowser = true; // 直接請求被擋，這次執行接下來都改走瀏覽器
+      // 直接請求被擋，這次執行接下來這類頁面都改走瀏覽器
+      httpBlocked[kind] = true;
+      if (kind === 'search') viaBrowser = true;
     }
   }
-  try { return result(parse(await browserHtml(url))); }
+  try { return parser(await browserHtml(url)); }
   catch (err) {
     if (!(err instanceof Blocked)) throw err;
     // 視窗留著並帶到最前面，等你親手通過驗證；通過後下一輪就會恢復
@@ -69,12 +71,46 @@ export async function search(opts) {
   }
 }
 
-// 解析一頁搜尋結果 HTML（也給 ingest 指令用，來源可以是瀏覽器另存的網頁）
-export function parse(html) {
+export async function search(opts) {
+  const items = await load('search', searchUrl(opts), parse);
+  return { total: items.length, items };
+}
+
+// 直接查單一商品頁（指定商品清單用）。缺貨也會回傳，inStock 為 false
+export const product = id => load('product', `https://www.walmart.com/ip/${id}`, parseProduct);
+
+function nextData(html) {
   if (html.includes('Robot or human?')) throw new Blocked('Walmart 要求人機驗證');
   const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
   if (!m) throw new Error('Walmart 頁面格式不符（找不到 __NEXT_DATA__）');
-  const stacks = JSON.parse(m[1]).props?.pageProps?.initialData?.searchResult?.itemStacks ?? [];
+  return JSON.parse(m[1]).props?.pageProps?.initialData;
+}
+
+function parseProduct(html) {
+  const p = nextData(html)?.data?.product;
+  if (!p?.usItemId) return [];
+  const used = p.conditionType && !/new/i.test(p.conditionType);
+  return [{
+    store: 'wm',
+    id: p.usItemId,
+    key: `wm:${p.usItemId}`,
+    kind: used ? 'refurb' : 'new',
+    cond: used ? 'Restored' : 'New',
+    name: p.name ?? '',
+    type: p.type ?? '',
+    seller: p.sellerDisplayName ?? p.sellerName ?? '?',
+    price: p.priceInfo?.currentPrice?.price,
+    ref: p.priceInfo?.wasPrice?.price,
+    inStock: p.availabilityStatus === 'IN_STOCK',
+    offerId: p.offerId,
+    url: `https://www.walmart.com/ip/${p.usItemId}`,
+    cartUrl: cartUrl({ id: p.usItemId, offerId: p.offerId }),
+  }];
+}
+
+// 解析一頁搜尋結果 HTML（也給 ingest 指令用，來源可以是瀏覽器另存的網頁）
+export function parse(html) {
+  const stacks = nextData(html)?.searchResult?.itemStacks ?? [];
   return stacks.flatMap(s => s.items ?? []).filter(i => i.__typename === 'Product' && i.usItemId).map(normalize);
 }
 

@@ -57,6 +57,8 @@ node dealwatch.mjs ui
   筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RTX 5070 Ti 以上）、
   記憶體（DDR5、單條 16GB 以上）。
 - `intervalSec`：watch 的輪詢間隔。
+- `watchlist`：指定商品。不靠搜尋結果，每輪直接查這幾件的價格和庫存，缺貨後補貨、沒排進搜尋前幾頁的也抓得到。
+  每一項填商品網址，或 `{ store: 'bb', id: 'SKU' }`；加 `maxPrice` 的話到那個價一定通知。
 - `steals`：撿漏標準，決定哪些會標 ★ 和推播。參考價（MSRP）另外放在 [msrp.mjs](msrp.mjs)。
 - `cart.auto`：`--auto-cart` 時哪些撿漏要自動開購物車，預設全部。
 - `notify`：LINE / Discord / Telegram / ntfy 推播，本機和雲端都會用到。
@@ -100,8 +102,10 @@ node dealwatch.mjs notify-test
 - **整機**：售價 ≤ CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價，再加 `buildAllowance`（主機板、電源、機殼、散熱、
   Windows，預設 $600）。只看顯卡在 `desktopMinGpu`（預設 RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
-- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`。預設兩條：Best Buy 的 5080 / 5090 筆電低於 $2000、
-  ROG Zephyrus 5070 Ti 以上低於 $2000。
+- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前三條：
+  ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
+  Best Buy 的 5080 / 5090 筆電低於 $2000、ROG Zephyrus 5070 Ti 以上低於 $2000。
+  規則可以用標題、cpu、gpu、記憶體、成色（open-box / 整新 / 全新）、店家、價格上限來組合。
 - 售價低於估值一半（`tooGood`）視為假貨或標題解析錯誤，不算撿漏。
 
 記憶體和 SSD 沒有官方 MSRP，`msrp.mjs` 裡用的是 2025 年缺貨前的常見零售價。

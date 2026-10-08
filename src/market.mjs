@@ -179,6 +179,9 @@ export function matchRule(item, rules = []) {
     if (rule.store && rule.store !== item.store) continue;
     if (rule.cat && rule.cat !== item.cat) continue;
     if (rule.match && !rule.match.test(item.name)) continue;
+    if (rule.kind && !rule.kind.includes(item.kind)) continue;
+    if (rule.cpu && !rule.cpu.test(item.specs.cpu)) continue;
+    if (rule.minRamGB && !((parseInt(item.specs.ram) || 0) >= rule.minRamGB)) continue;
     if (rule.gpu && !rule.gpu.test(item.specs.gpu)) continue;
     if (rule.minGpu && item.specs.gpuScore < gpuScore(rule.minGpu)) continue;
     if (rule.maxPrice && item.price > rule.maxPrice) continue;
