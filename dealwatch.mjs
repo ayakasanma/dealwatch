@@ -253,15 +253,22 @@ async function cmdNotifyTest() {
 // 列出撿漏判斷實際採用的參考價：override > MSRP > 掃到的市價
 function cmdMarket() {
   const street = state.readJson('market.json')?.prices ?? {};
-  const { msrp, override } = config.steals;
+  const { msrp, override, msrpPremium, margin } = config.steals;
   const keys = new Set([...Object.keys(street), ...Object.keys(override), ...['cpu', 'gpu'].flatMap(kind => Object.keys(msrp[kind]).map(k => `${kind}:${k}`))]);
-  console.log('零件'.padEnd(18) + 'MSRP'.padStart(8) + '市價'.padStart(8) + '採用'.padStart(8));
+  console.log('零件'.padEnd(18) + 'MSRP'.padStart(8) + '市價'.padStart(8) + '撿漏價'.padStart(7));
   for (const key of [...keys].filter(k => !k.startsWith('ssd:')).sort()) {
-    const m = msrpOf(key, msrp), s = street[key], used = override[key] ?? (m != null && s != null ? Math.min(m, s) : m ?? s);
-    console.log(key.padEnd(20) + String(m ?? '').padStart(8) + String(s ?? '').padStart(10) + String(used ?? '').padStart(10) + (override[key] != null ? '  (override)' : ''));
+    const m = msrpOf(key, msrp), s = street[key];
+    // 跟 src/market.mjs 的判斷一致：指定價 > 被炒高時 MSRP 加溢價 > 比市價低 margin
+    const [target, how] = override[key] != null ? [override[key], '你指定的']
+      : m != null && s != null && s > m * 1.1 ? [Math.round(Math.min(m * (1 + msrpPremium), s * (1 - margin))), `MSRP +${Math.round(msrpPremium * 100)}%`]
+      : m != null && s == null ? [m, 'MSRP（查無市價）']
+      : [Math.round(Math.min(s, m ?? Infinity) * (1 - margin)), `比市價低 ${Math.round(margin * 100)}%，限新上架或剛降價`];
+    console.log(key.padEnd(20) + String(m ?? '').padStart(8) + String(s ?? '').padStart(10) + String(target).padStart(10) + `  ${how}`);
   }
-  console.log(c.dim(`\n記憶體 MSRP 以每 GB 單價換算（DDR5 $${msrp.ramPerGB[5]}、DDR4 $${msrp.ramPerGB[4]}）；整機另加 $${msrp.buildAllowance}。要調整請改 msrp.mjs`));
+  console.log(c.dim(`\n記憶體 MSRP 以每 GB 單價換算（DDR5 $${msrp.ramPerGB[5]}、DDR4 $${msrp.ramPerGB[4]}）；整機 = 各零件撿漏價加總 + $${msrp.buildAllowance}。`));
+  console.log(c.dim('MSRP 改 msrp.mjs；溢價比例與個別指定價改 config.mjs 的 steals.msrpPremium / steals.override。'));
 }
+
 
 // 打開 Walmart 專用的瀏覽器視窗並留著，讓你通過人機驗證或登入帳號
 async function cmdBrowser() {

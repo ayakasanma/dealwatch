@@ -107,14 +107,18 @@ export function msrpOf(key, table) {
 // 估值。估不出來回傳 null。
 // 參考價：你在 override 指定的最優先；否則 MSRP 與市價取低者。
 // 被炒高的零件（顯卡、記憶體）由 MSRP 把關，本來就賣得比 MSRP 便宜的（舊款 CPU）由市價把關。
-export function appraise(item, priceOf, { margin = 0.1, msrpMargin = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
+export function appraise(item, priceOf, { margin = 0.1, msrpPremium = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
   // 完全沒有別人在賣的零件，就拿它自己原本的價格當行情，不然只此一家的東西會永遠被拿去跟 MSRP 比
   const street = (key, self) => priceOf(key, item.key) ?? (self ? ownPrice : undefined);
   const ref = (key, self = false) => {
     if (override[key] != null) return { value: override[key], by: 'override' };
     const m = msrpOf(key, msrp), s = street(key, self);
-    // 市價明顯高於 MSRP（被炒高）時，回到 MSRP 才算數；市價本來就在 MSRP 附近或更低時，照市價的規則走
-    if (m != null && (s == null || s > m * 1.1)) return { value: m, by: 'msrp' };
+    // 市價明顯高於 MSRP（被炒高）時，以 MSRP 加一點溢價為準：這種行情下比 MSRP 貴一些仍然算便宜。
+    // 但溢價後不能貼近市價，至少要比市價低 margin。
+    if (m != null && s != null && s > m * 1.1) return { value: Math.round(Math.min(m * (1 + msrpPremium), s * (1 - margin))), by: 'msrp', msrp: m };
+    // 查不到市價就無從判斷有沒有被炒高，直接用 MSRP，不加溢價
+    if (m != null && s == null) return { value: m, by: 'msrp', msrp: m };
+    // 市價本來就在 MSRP 附近或更低時，照市價的規則走
     return s != null ? { value: Math.min(s, m ?? Infinity), by: 'street' } : null;
   };
   const parts = [];
@@ -139,16 +143,17 @@ export function appraise(item, priceOf, { margin = 0.1, msrpMargin = 0, tooGood 
     if (known(cpuK) && known(gpuK)) {
       if (msrp?.buildAllowance) parts.push(['主機板/電源/機殼等', msrp.buildAllowance]);
       label = '自組估值';
-      useMargin = msrpMargin;
+      useMargin = 0;
     } else { label = '零件市價'; useMargin = margin; }
   } else {
     const key = item.cat === 'cpu' ? `cpu:${cpuKey(item.specs.cpu)}` : item.cat === 'gpu' ? `gpu:${item.specs.gpu}` : item.cat === 'ram' ? ramKey(item.name) : '';
     const r = key && ref(key, true);
     if (!r) return null;
-    // 參考價是 MSRP（或你指定的撿漏價）：售價到那個價就算，不看別人賣多少
+    // 參考價是 MSRP 加溢價（或你指定的撿漏價）：售價到那個價就算，不看別人賣多少
     if (r.by !== 'street') {
-      const steal = Math.floor(item.price) <= r.value * (1 - msrpMargin) && item.price >= r.value * tooGood;
-      return { sum: r.value, below: Math.round((1 - item.price / r.value) * 100), steal, reason: `${r.by === 'override' ? '你設定的撿漏價' : 'MSRP'} $${r.value}，售價 $${item.price}` };
+      const steal = Math.floor(item.price) <= r.value && item.price >= r.value * tooGood;
+      const basis = r.by === 'override' ? `你設定的撿漏價 $${r.value}` : `撿漏價 $${r.value}（MSRP $${r.msrp}）`;
+      return { sum: r.value, below: Math.round((1 - item.price / r.value) * 100), steal, reason: `${basis}，售價 $${item.price}` };
     }
     // 參考價是市價：這件商品自己原本的價格（ownPrice）也算行情，
     // 一直都賣這個價的最低價賣家不是撿漏，新上架或剛降價、而且比別人便宜 margin 以上的才是

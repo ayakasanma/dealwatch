@@ -32,5 +32,5 @@ export default {
   ssdPerTB: 65,
 
   // 整機除了 CPU / 顯卡 / 記憶體 / SSD 以外的部分：主機板、電源、機殼、散熱、Windows
-  buildAllowance: 700,
+  buildAllowance: 600,
 };

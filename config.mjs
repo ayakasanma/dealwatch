@@ -61,19 +61,23 @@ export default {
   // 撿漏標準：符合的才會標 ★、推播。每件只通知一次，之後要再便宜 alert.dropPct 以上才會再通知。
   steals: {
     // 參考價以 msrp.mjs 的 MSRP 為準（現在市價普遍被炒高，跟市價比會把「大家都這麼貴」誤當成撿漏）：
-    //   零件：售價 <= MSRP x (1 - msrpMargin)
-    //   整機：售價 <= (CPU + 顯卡 + 記憶體 + SSD 的 MSRP + msrp.buildAllowance) x (1 - msrpMargin)
-    // MSRP 表裡沒有的型號才退回跟市價比，要低於市價 margin 以上才算。
+    //   被炒高的零件：售價 <= MSRP x (1 + msrpPremium)
+    //   整機：售價 <= CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價 + msrp.buildAllowance
+    // 市價在 MSRP 附近或更低的零件、以及 MSRP 表裡沒有的型號，跟市價比，要低於市價 margin 以上才算。
     // 市價 = Best Buy 全新品目錄與掃描到的全新零件裡的最低價，每 refreshHours 小時更新，存在 data/market.json
     msrp,
-    msrpMargin: 0,
+    // 被炒高的零件（市價比 MSRP 高一成以上）可以接受比 MSRP 貴多少還算撿漏。0.25 = MSRP 的 1.25 倍。
+    // 加完溢價後仍至少要比市價低 margin。個別零件想另外指定就用下面的 override。
+    msrpPremium: 0.25,
     desktopMinGpu: 'RTX 5070 Ti', // 整機只有這個等級以上的顯卡才會被判成撿漏
     margin: 0.10,
     tooGood: 0.5,    // 低於估值一半視為假貨或標題解析錯誤，不算撿漏
     refreshHours: 6,
-    // 臨時想蓋過 MSRP 表的某個零件價格可以寫在這裡，例如 { 'gpu:5090': 2000, 'cpu:9800X3D': 450 }。
-    // 長期要改的話直接改 msrp.mjs。
-    override: {},
+    // 個別零件直接指定撿漏價（不再套溢價），key 的寫法見 `node dealwatch.mjs market`。
+    // 零件本身到這個價就算撿漏；整機估值裡這個零件也用這個價。
+    override: {
+      'gpu:5090': 2500,
+    },
     // 估不出零件價的品項（筆電）用規則，命中任一條就算撿漏。可用欄位：
     //   store ('bb'|'wm')、cat、match（比對標題）、gpu（比對 gpu 欄）、minGpu（效能至少這個等級）、maxPrice
     rules: [
