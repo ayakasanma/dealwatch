@@ -159,7 +159,7 @@ export async function push(cfg, alerts, note) {
   const t = pushTargets(cfg);
   if (!t.line && !t.discord && !t.telegramToken && !t.ntfy) return;
   if (!alerts.length && !note) return;
-  const shown = alerts.slice(0, 8);
+  const shown = [...alerts].sort((a, b) => ({ high: 3, medium: 2, low: 1 }[b.item?.deal?.priority] ?? 3) - ({ high: 3, medium: 2, low: 1 }[a.item?.deal?.priority] ?? 3)).slice(0, 8);
   const texts = shown.map(alertText);
   if (note) texts.push(note);
   if (alerts.length > shown.length) texts.push(`…另有 ${alerts.length - shown.length} 則，見 data/alerts.jsonl`);
