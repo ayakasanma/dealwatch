@@ -2,6 +2,7 @@
 // 市價來源：Best Buy 全新品目錄裡 CPU / 顯卡 / 記憶體 / SSD 的最低價，加上掃描時看到的全新零件。
 import * as bestbuy from './bestbuy.mjs';
 import { parseSpecs, parseRamKit, gpuScore } from './specs.mjs';
+import { laptopRamEvidence } from './laptop-ram.mjs';
 
 // 'r7 9800X3D' -> '9800X3D'；只有系列沒有型號（例如 'u9'）就不算
 export const cpuKey = cpu => { const model = (cpu ?? '').split(' ').pop(); return /\d{3}/.test(model) ? model : ''; };
@@ -181,7 +182,7 @@ export function matchRule(item, rules = []) {
     if (rule.match && !rule.match.test(item.name)) continue;
     if (rule.kind && !rule.kind.includes(item.kind)) continue;
     if (rule.cpu && !rule.cpu.test(item.specs.cpu)) continue;
-    if (rule.minRamGB && !((parseInt(item.specs.ram) || 0) >= rule.minRamGB)) continue;
+    if (rule.minRamGB && !((laptopRamEvidence(item).gb ?? 0) >= rule.minRamGB)) continue;
     if (rule.gpu && !rule.gpu.test(item.specs.gpu)) continue;
     if (rule.minGpu && item.specs.gpuScore < gpuScore(rule.minGpu)) continue;
     if (rule.maxPrice && item.price > rule.maxPrice) continue;
@@ -193,8 +194,12 @@ export function matchRule(item, rules = []) {
 // 回傳 item.deal：{ steal, reason, sum?, below? }
 export function judge(item, priceOf, cfg = {}, ownPrice) {
   const value = appraise(item, priceOf, cfg, ownPrice);
-  if (value?.steal) return value;
+  const withRam = result => item.cat === 'laptop' && result?.steal
+    ? { ...result, ramEvidence: laptopRamEvidence(item), priority: laptopRamEvidence(item).priority,
+        reason: `${result.reason}｜RAM ${laptopRamEvidence(item).gb ?? '?'}GB：${laptopRamEvidence(item).label}` }
+    : result;
+  if (value?.steal) return withRam(value);
   const rule = matchRule(item, cfg.rules);
-  if (rule) return { ...value, steal: true, reason: `符合規則「${rule.name}」` };
+  if (rule) return withRam({ ...value, steal: true, reason: `符合規則「${rule.name}」` });
   return value;
 }
