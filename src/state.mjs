@@ -42,10 +42,16 @@ export class State {
   // 撿漏只通知一次；之後要比通知時再便宜 dropPct 以上才會再通知
   needsNotify(item, dropPct = 3) {
     const told = this.items[item.key]?.told;
-    return told == null || item.price <= told * (1 - dropPct / 100);
+    const rec = this.items[item.key];
+    const current = { high: 3, medium: 2, low: 1 }[item.deal?.priority] ?? 3;
+    const previous = { high: 3, medium: 2, low: 1 }[rec?.toldPriority] ?? 3;
+    return told == null || item.price <= told * (1 - dropPct / 100) || current > previous;
   }
 
-  markNotified(item) { if (this.items[item.key]) this.items[item.key].told = item.price; }
+  markNotified(item) { if (this.items[item.key]) {
+    this.items[item.key].told = item.price;
+    this.items[item.key].toldPriority = item.deal?.priority ?? 'high';
+  } }
 
   save() {
     // 超過 30 天沒再出現的紀錄清掉，之後重新上架會再被當成上新
