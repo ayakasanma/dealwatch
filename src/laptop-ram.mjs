@@ -7,7 +7,7 @@ const gb = value => {
 export function laptopRamEvidence(item) {
   const title = String(item?.name ?? '');
   // Prefer explicitly labelled system memory. Avoid GPU VRAM and maximum supported RAM.
-  const cleaned = title.replace(/\b(?:up to|(?:supports?\s+)?up to|maximum|max(?:imum)? supported)\s+\d+\s*GB\s*(?:RAM|memory|DDR[45])?/gi, ' ');
+  const cleaned = title.replace(/\b(?:(?:supports?\s+)?up to|maximum|max(?:imum)? supported)\s+\d+\s*GB\s*(?:RAM|memory|DDR[45])?/gi, ' ');
   const explicit = [
     ...cleaned.matchAll(/\b(\d{1,3})\s*GB\s*(?:RAM|system memory|DDR[45X]?|LPDDR\w*|SODIMM|installed memory)\b/gi),
     ...cleaned.matchAll(/\b(?:RAM|system memory|installed memory|DDR[45X]?|LPDDR\w*)\s*[:\-]?\s*(\d{1,3})\s*GB\b/gi),
@@ -15,7 +15,8 @@ export function laptopRamEvidence(item) {
   const kits = [...cleaned.matchAll(/\b([124])\s*[x×]\s*(\d{1,3})\s*GB\b/gi)]
     .map(m => gb(+m[1] * +m[2])).filter(Boolean);
   const values = [...explicit, ...kits];
-  const parsed = gb(item?.specs?.ram);
+  const onlyCapacityLimit = /\b(?:supports?\s+up to|up to|maximum|max(?:imum)? supported)\s+\d+\s*GB\b/i.test(title) && !values.length;
+  const parsed = onlyCapacityLimit ? null : gb(item?.specs?.ram);
   // Incomplete/mismatched listings should not qualify as verified factory memory.
   const conflict = new Set(values).size > 1 || (values.length && parsed && !values.includes(parsed));
   const amount = conflict ? null : (values[0] ?? parsed);
