@@ -82,7 +82,7 @@ function limiter(max, gapMs) {
 }
 
 // Walmart 對密集請求很敏感，預設就放慢；間隔可由 config.walmart.gapMs 調整
-const limits = { bb: limiter(10, 0), wm: limiter(2, 1200), wt: limiter(4, 250), ne: limiter(2, 1500), sd: limiter(2, 1000), rd: limiter(1, 2000) };
+const limits = { bb: limiter(10, 0), wm: limiter(2, 1200), wt: limiter(4, 250), ne: limiter(2, 1500), sd: limiter(2, 1000), rd: limiter(1, 2000), fx: limiter(1, 0) };
 
 export function setPace(host, max, gapMs) { limits[host] = limiter(max, gapMs); }
 

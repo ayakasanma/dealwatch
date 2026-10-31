@@ -23,6 +23,7 @@ function mock(body, init = {}) {
 
 beforeEach(() => {
   reddit.resetCache();
+  slickdeals.resetCache();
   // 測試不需要真實的站台間隔
   setPace('sd', 10, 0);
   setPace('rd', 10, 0);
@@ -106,6 +107,51 @@ test('Slickdeals：超過 maxAgeHours 的貼文被過濾', async () => {
   assert.ok(items.some(i => i.key === 'sd:20229297'), '10/29 的 NIMO 應保留');
   assert.ok(!items.some(i => i.key === 'sd:20205657'), '10/25 的 Lenovo 應被濾掉');
   assert.ok(items.every(i => Date.parse(i.postedAt) >= cutoff));
+});
+
+// 搜尋 RSS 回 Cloudflare 的 403，官方 feed 由 feeds(url) 決定內容
+function blockedSearch(feeds) {
+  const calls = [];
+  const fetchImpl = async url => {
+    calls.push(String(url));
+    if (String(url).includes('newsearch.php')) return new Response('<html><title>Just a moment...</title></html>', { status: 403, headers: { 'cf-mitigated': 'challenge' } });
+    return feeds(String(url));
+  };
+  return { calls, fetchImpl };
+}
+
+test('Slickdeals：搜尋被擋時改讀官方 feed，自己比對名稱，同一篇只算一次', async () => {
+  const m = blockedSearch(url => new Response(fixture(url.includes('Forums-9') ? 'slickdeals-gpu.xml' : 'slickdeals-desktop.xml')));
+  const { items } = await slickdeals.search({ query: 'rtx 5080', maxAgeHours: ALL }, { fetchImpl: m.fetchImpl });
+  assert.ok(items.some(i => i.key === 'sd:20211477'), '應找到 Hot Deals 裡的 RTX 5080');
+  assert.ok(items.every(i => /rtx/i.test(i.name) && i.name.includes('5080')));
+  assert.equal(new Set(items.map(i => i.key)).size, items.length);
+  assert.equal(slickdeals.usingOfficialFeeds(), true);
+
+  const same = blockedSearch(() => new Response(fixture('slickdeals-gpu.xml')));
+  slickdeals.resetCache();
+  const both = await slickdeals.search({ query: 'rtx 5080', maxAgeHours: ALL }, { fetchImpl: same.fetchImpl });
+  assert.equal(new Set(both.items.map(i => i.key)).size, both.items.length);
+});
+
+test('Slickdeals：被擋的搜尋只敲一次，官方 feed 同一輪也只抓一次', async () => {
+  const m = blockedSearch(() => new Response(fixture('slickdeals-gpu.xml')));
+  await Promise.all(['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'ddr5'].map(query => slickdeals.search({ query, maxAgeHours: ALL }, { fetchImpl: m.fetchImpl })));
+  assert.equal(m.calls.filter(url => url.includes('newsearch.php')).length, 1);
+  assert.equal(m.calls.filter(url => url.includes('feedburner')).length, 2);
+  await slickdeals.search({ query: 'rtx 5080', maxAgeHours: ALL }, { fetchImpl: m.fetchImpl });
+  assert.equal(m.calls.length, 3, '被擋的記憶和快取都還在，不再發請求');
+});
+
+test('Slickdeals：官方 feed 也被擋才算被擋；搜尋是別的錯誤就不改讀 feed', async () => {
+  const blocked = blockedSearch(() => new Response('', { status: 403 }));
+  await assert.rejects(slickdeals.search({ query: 'x' }, { fetchImpl: blocked.fetchImpl }), err => err instanceof Blocked && /官方 feed/.test(err.message));
+
+  slickdeals.resetCache();
+  const down = mock('', { status: 500 });
+  await assert.rejects(slickdeals.search({ query: 'x' }, { fetchImpl: down.fetchImpl, retries: 0 }), err => !(err instanceof Blocked));
+  assert.equal(slickdeals.usingOfficialFeeds(), false);
+  assert.ok(down.calls.every(call => call.url.includes('newsearch.php')));
 });
 
 test('Reddit：商品網址、討論串、店名、價格與 id', async () => {

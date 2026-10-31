@@ -152,6 +152,11 @@ export class Browser {
     return this.serial(async () => { await this.navigate(url, timeout); return this.run('document.documentElement.outerHTML'); });
   }
 
+  // 不重新載入，讀分頁目前的 HTML（頁面自己換過內容時用）
+  currentHtml() {
+    return this.serial(() => this.run('document.documentElement.outerHTML'));
+  }
+
   // 載入一頁後反覆執行一段運算式，直到 until(結果) 成立或逾時，回傳最後一次的結果。
   // 給內容是載入後才由腳本畫出來的頁面用。
   evaluate(url, expression, { until = v => !!v, timeout = 10000 } = {}) {
@@ -176,9 +181,17 @@ export class Browser {
     await this.starting.catch(() => {});
     // 接到別處的瀏覽器時不關它，但把分頁換回空白頁（hold 時保留）
     if (this.parent) {
-      if (!this.keepOpen) await Promise.race([this.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {}), sleep(1500)]);
+      // 只有還在等人驗證的分頁才留著；驗證過了或別的查詢已經成功就關掉，不留下沒人管的分頁
+      if (!this.hold) await Promise.race([this.send('Target.closeTarget', { targetId: this.targetId }).catch(() => {}), sleep(1500)]);
     } else if (this.remote && this.idleMs > 0) await Promise.race([this.blank(), sleep(6000)]);
     if (this.spawned && !this.keepOpen) await Promise.race([this.send('Browser.close').catch(() => {}), sleep(1500)]);
     this.ws?.close();
   }
+}
+
+// 要用瀏覽器的店各給一個分頁：第一家用主分頁（瀏覽器由它負責），其他共用同一個瀏覽器、各開一個分頁。
+// 驗證頁和 hold 是跟著分頁走的，共用分頁時別家的載入會蓋掉驗證頁，別家載入成功也會把 hold 放掉。
+export function storeTabs(options, [first, ...rest]) {
+  const main = new Browser(options);
+  return Object.fromEntries([[first, main], ...rest.map(code => [code, new Browser({ ...options, parent: main })])]);
 }

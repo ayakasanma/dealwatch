@@ -18,7 +18,7 @@ import { Blocked, setPace } from './http.mjs';
 import { evaluate, parseSpecs } from './specs.mjs';
 import { State } from './state.mjs';
 import { addToCart, openUrl } from './cart.mjs';
-import { Browser } from './browser.mjs';
+import { storeTabs } from './browser.mjs';
 import { startUi } from './ui.mjs';
 import { scanStatus } from './scan-status.mjs';
 import { buildMarket, makePricer, foldMarket, judge, msrpOf } from './market.mjs';
@@ -111,15 +111,16 @@ const watchlist = (config.watchlist ?? []).map(parseWatch).filter(w => w && stor
 const time = () => new Date().toTimeString().slice(0, 8);
 setPace('wm', 2, config.walmart.gapMs);
 
+// 每家要用瀏覽器的店各一個分頁，都在同一個瀏覽器裡
+const tabs = storeTabs({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl }, ['wm', 'ne', 'eb', 'mc']);
 // Walmart 直接請求被擋時改用獨立的瀏覽器視窗；被擋過就記 6 小時，這段時間直接走瀏覽器不再白試
-const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl });
+const wmBrowser = tabs.wm;
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
-// Newegg 被 Cloudflare 擋時也改用同一個瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
-newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
-// eBay / Micro Center 直接請求一律被擋，只能用瀏覽器；在同一個瀏覽器另開一個分頁，不跟 Walmart / Newegg 搶同一個分頁排隊
-const shopBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl, parent: wmBrowser });
-ebay.configure({ browser: shopBrowser, ...config.ebay });
-microcenter.configure({ browser: shopBrowser, ...config.microcenter });
+// Newegg 被 Cloudflare 擋時也改用瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
+newegg.configure({ browser: walmartVia === 'http' ? null : tabs.ne });
+// eBay / Micro Center 直接請求一律被擋，只能用瀏覽器
+ebay.configure({ browser: tabs.eb, ...config.ebay });
+microcenter.configure({ browser: tabs.mc, ...config.microcenter });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -638,7 +639,7 @@ async function cmdWatch({ ui = false } = {}) {
 
 // 結束前把自己開的瀏覽器關掉
 async function quit(code) {
-  await shopBrowser.dispose();
+  await Promise.all([tabs.ne, tabs.eb, tabs.mc].map(tab => tab.dispose()));
   await wmBrowser.dispose();
   process.exit(code);
 }

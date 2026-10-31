@@ -197,9 +197,9 @@ function render() {
   $('view').href = viewUrl;
 
   // 需要人去按驗證的時候，把入口直接擺在最上面
-  const needsHuman = Object.values(data.stores).some(s => s.needsHuman && s.error && !s.paused);
-  $('banner').hidden = !needsHuman;
-  if (needsHuman) $('banner').innerHTML = 'Walmart 要求人機驗證，需要你親手按一下。' + (viewUrl
+  const needsHuman = Object.values(data.stores).filter(s => s.needsHuman && s.error && !s.paused);
+  $('banner').hidden = !needsHuman.length;
+  if (needsHuman.length) $('banner').innerHTML = `${needsHuman.map(s => esc(s.name)).join('、')} 要求人機驗證，需要你親手按一下。` + (viewUrl
     ? `<a href="${esc(viewUrl)}" target="_blank" rel="noopener">開啟遠端瀏覽器視窗</a>，完成後回來按「立刻重掃」。`
     : '請到 dealwatch 開的那個瀏覽器視窗完成，再按「立刻重掃」。');
 

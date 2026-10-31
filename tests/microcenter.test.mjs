@@ -185,6 +185,30 @@ test('人機驗證頁丟 Blocked，保留頁面、帶到最前面', async () => 
   }
 });
 
+test('攔截頁幾秒後自己換成正常頁面就不算被擋，也不重新載入', async () => {
+  const blocked = '<html><head><title>Just a moment...</title></head></html>';
+  const { browser, calls } = mock(url => (url.includes('fq=') ? openBoxHtml : blocked));
+  let reads = 0;
+  browser.currentHtml = async () => (++reads === 1 ? blocked : searchHtml);
+  configure({ browser, storeId: '165', gapMs: 0, recheckMs: [0, 0] });
+  const { items } = await search({ query: 'rtx' });
+  assert.ok(items.length > 0);
+  assert.equal(reads, 2);
+  assert.equal(browser.hold, false);
+  assert.equal(calls.filter(url => !url.includes('fq=')).length, 1);
+});
+
+test('一直是攔截頁才算被擋，訊息帶頁面標題', async () => {
+  const blocked = '<html><head><title>Just a moment...</title></head></html>';
+  const { browser } = mock(() => blocked);
+  let reads = 0;
+  browser.currentHtml = async () => { reads++; return blocked; };
+  configure({ browser, storeId: '165', gapMs: 0, recheckMs: [0, 0] });
+  await assert.rejects(search({ query: 'rtx' }), err => err instanceof Blocked && /人機驗證.*Just a moment/.test(err.message));
+  assert.equal(reads, 2);
+  assert.equal(browser.hold, true);
+});
+
 test('查無結果回 { total: 0, items: [] }，不是錯誤，也不再載入 open-box 頁', async () => {
   const { browser, calls } = mock(() => EMPTY);
   configure({ browser, storeId: '165', gapMs: 0 });

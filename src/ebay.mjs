@@ -4,6 +4,7 @@
 //   search({ query, minPrice, maxPrice, category }) -> { total, items }
 //   product(itemId) -> items      指定商品用，itemId 是商品網址 /itm/<itemId> 那一段
 import { Blocked, RequestError } from './http.mjs';
+import { usdRate } from './fx.mjs';
 
 const BASE = 'https://www.ebay.com';
 const PAGE_SIZE = 120;
@@ -40,6 +41,18 @@ const amount = v => {
   const n = typeof v === 'number' ? v : Number.parseFloat(String(v).replace(/[^\d.]/g, ''));
   return Number.isFinite(n) && n >= 0 ? n : undefined;
 };
+
+// eBay 依連線的國家顯示當地幣別（例如 NT$ 74,975），數字前面的符號決定幣別。
+// 不認得的符號原樣傳下去，換算時找不到匯率就報錯，不會被當成美金。
+const CURRENCIES = { $: 'USD', US$: 'USD', NT$: 'TWD', C$: 'CAD', CA$: 'CAD', AU$: 'AUD', A$: 'AUD', HK$: 'HKD', S$: 'SGD', '£': 'GBP', '€': 'EUR', '¥': 'JPY', 'JP¥': 'JPY' };
+export function currencyOf(priceText) {
+  const symbol = /^[^\d]*/.exec(String(priceText ?? '').trim())[0].replace(/\s/g, '');
+  return CURRENCIES[symbol] ?? symbol;
+}
+// 任何幣別符號加金額（+$16.64、+NT$ 384、Was: C $100.00），金額在第一個群組
+const MONEY = String.raw`(?:[A-Z]{0,3}\s*[$£€¥]|[A-Z]{3}\s)\s*([\d,]+(?:\.\d+)?)`;
+const SHIPPING_FEE = new RegExp(String.raw`\+\s*${MONEY}\s*(?:delivery|shipping)`, 'i');
+const WAS_PRICE = new RegExp(String.raw`(?:Was|Previous price|List price)[:\s]*${MONEY}`, 'i');
 
 const decode = s => String(s ?? '')
   .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -86,7 +99,7 @@ function typeOf(title) {
   return '';
 }
 
-function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbackCount: count, itemPrice, shipping, ref, bestOffer, listedAt, inStock }) {
+function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbackCount: count, itemPrice, shipping, currency = 'USD', ref, bestOffer, listedAt, inStock }) {
   const type = CATEGORY_TYPES[category] ?? typeOf(name);
   return {
     store: 'eb',
@@ -102,6 +115,7 @@ function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbac
     price: itemPrice + (shipping ?? 0),
     itemPrice,
     shipping,
+    currency,
     ref,
     bestOffer: !!bestOffer,
     inStock: inStock !== false,
@@ -119,8 +133,10 @@ let usOnly = false;
 let gapMs = 10000;
 let chain = Promise.resolve();
 let lastLoad = 0;
+let shownRate = 1; // eBay 最近顯示的幣別對美金的匯率
 
 export function configure({ browser: b, conditions: c, usOnly: u, gapMs: g } = {}) {
+  shownRate = 1;
   if (b !== undefined) browser = b;
   if (Array.isArray(c)) conditions = c;
   if (typeof u === 'boolean') usOnly = u;
@@ -226,7 +242,7 @@ function cardItem(block, id, category) {
 
   const priceText = textOf(/class="[^"]*\bs-card__price\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(block)?.[1] ?? '');
   // 多規格價格區間（$100.00 to $200.00）整筆略過，免得用最低價誤判
-  if (/\bto\b/i.test(priceText) && /\$[\d,]/.test(priceText)) return null;
+  if (/\bto\b/i.test(priceText)) return null;
   const itemPrice = money(priceText);
   if (itemPrice == null) return null;
 
@@ -240,10 +256,10 @@ function cardItem(block, id, category) {
   const seller = fb?.[1];
   const feedbackPct = fb ? Number.parseFloat(fb[2]) : undefined;
 
-  const plus = /\+\s*\$([\d,]+(?:\.\d+)?)\s*(?:delivery|shipping)/i.exec(flat);
+  const plus = SHIPPING_FEE.exec(flat);
   const shipping = plus ? amount(plus[1]) : /Free\s+(?:delivery|shipping)/i.test(flat) ? 0 : undefined;
 
-  const was = /(?:Was|Previous price|List price)[:\s]*(?:US\s*)?\$([\d,]+(?:\.\d+)?)/i.exec(flat);
+  const was = WAS_PRICE.exec(flat);
   const ref = was ? money(was[1]) : undefined;
 
   const listedAt = /\b((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{1,2}\s+\d{1,2}:\d{2})\b/.exec(flat)?.[1];
@@ -259,6 +275,7 @@ function cardItem(block, id, category) {
     feedbackCount: fb ? feedbackCount(fb[3]) : undefined,
     itemPrice,
     shipping,
+    currency: currencyOf(priceText),
     ref: ref != null && ref > itemPrice ? ref : undefined,
     bestOffer: /or Best Offer/i.test(flat),
     listedAt,
@@ -266,10 +283,22 @@ function cardItem(block, id, category) {
   });
 }
 
+// 當地幣別的價格換算成美金，之後的比價、過濾和通知都用美金
+async function inUsd(item) {
+  const rate = await usdRate(item.currency);
+  if (rate === 1) return item;
+  const usd = v => (v == null ? v : Math.round(v / rate * 100) / 100);
+  return { ...item, currency: 'USD', price: usd(item.price), itemPrice: usd(item.itemPrice), shipping: usd(item.shipping), ref: usd(item.ref) };
+}
+
 export async function search({ query, minPrice, maxPrice, category } = {}) {
   if (!browser) throw new RequestError('eBay 需要瀏覽器…', 'config');
-  const html = await load(searchUrl({ query, minPrice, maxPrice, category }));
-  const { total, items } = parseSearch(html, category);
+  // 網址裡的價格範圍也是當地幣別，用上一頁看到的幣別換算
+  const local = v => (v == null ? v : Math.round(v * shownRate));
+  const html = await load(searchUrl({ query, minPrice: local(minPrice), maxPrice: local(maxPrice), category }));
+  const { total, items: shown } = parseSearch(html, category);
+  const items = await Promise.all(shown.map(inUsd));
+  if (shown.length) shownRate = await usdRate(shown[0].currency);
   // 價格在本地再過濾一次（用商品價，不含運費）
   return {
     total,
@@ -355,6 +384,7 @@ export function parseItem(html, id) {
     feedbackCount: feedbackCount(/\(([\d.,]+[KkMm]?)\)/.exec(sellerBlock)?.[1]),
     itemPrice,
     shipping,
+    currency: offer.priceCurrency || 'USD',
     ref: undefined,
     bestOffer: /or Best Offer/i.test(visible.slice(0, 8000)),
     listedAt: data?.offers?.availabilityStarts ?? undefined,
@@ -367,5 +397,5 @@ export async function product(itemId) {
   if (!id) return [];
   if (!browser) throw new RequestError('eBay 需要瀏覽器…', 'config');
   const html = await load(`${BASE}/itm/${encodeURIComponent(id)}`);
-  return parseItem(html, id);
+  return Promise.all(parseItem(html, id).map(inUsd));
 }

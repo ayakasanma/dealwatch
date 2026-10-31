@@ -14,6 +14,8 @@ const BLOCKED_MESSAGE = 'Micro Center 要求人機驗證，請在 dealwatch 專�
 let browser = null;
 let storeId = '165';
 let gapMs = 4000;
+// 看到攔截頁時，隔這麼久再看一次，都還是攔截頁才算被擋
+let recheckMs = [3000, 5000];
 // 多個關鍵字會同時呼叫 search：所有載入排同一條佇列，並確保兩次載入間隔至少 gapMs
 let gate = Promise.resolve();
 let readyAt = 0;
@@ -21,8 +23,9 @@ let readyAt = 0;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const plus = s => encodeURIComponent(String(s ?? '').trim()).replace(/%20/g, '+');
 
-export function configure({ browser: b = null, storeId: sid = '165', gapMs: gap = 4000 } = {}) {
+export function configure({ browser: b = null, storeId: sid = '165', gapMs: gap = 4000, recheckMs: recheck = [3000, 5000] } = {}) {
   browser = b;
+  recheckMs = recheck;
   storeId = String(sid ?? '').trim() || '165';
   const n = Number(gap);
   gapMs = Number.isFinite(n) && n >= 0 ? n : 4000;
@@ -37,13 +40,23 @@ function load(url) {
     const wait = readyAt - Date.now();
     if (wait > 0) await sleep(wait);
     try {
-      return await browser.html(url);
+      return await settled(await browser.html(url));
     } finally {
       readyAt = Date.now() + gapMs;
     }
   });
   gate = job.catch(() => {});
   return job;
+}
+
+// 攔截頁可能幾秒後自己換成正常頁面，等一下再判斷，不重新載入。一個查詢誤判會讓整輪作廢，還會叫人去按驗證
+async function settled(html) {
+  for (const ms of recheckMs) {
+    if (!isBlockedPage(html) || !browser.currentHtml) break;
+    await sleep(ms);
+    html = await browser.currentHtml();
+  }
+  return html;
 }
 
 // 正常頁面也會載入 recaptcha / Cloudflare 腳本，所以不能只比對 captcha 或 challenge-platform；
@@ -73,7 +86,8 @@ async function fetchPage(url) {
   const html = await load(url);
   if (isBlockedPage(html)) {
     await holdForHuman();
-    throw new Blocked(BLOCKED_MESSAGE);
+    const title = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]).slice(0, 60);
+    throw new Blocked(title ? `${BLOCKED_MESSAGE}（頁面標題：${title}）` : BLOCKED_MESSAGE);
   }
   browser.hold = false;
   return html;

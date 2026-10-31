@@ -1,4 +1,6 @@
 // Slickdeals：關鍵字搜尋的 RSS。商品在別家店賣，seller 是那家店。
+// 搜尋 RSS 在 Cloudflare 後面，部分連線（例如從 NAS）會被擋（403）。這時改讀 Slickdeals 發布在 FeedBurner 的官方 feed：
+// 格式跟搜尋 RSS 一樣，但只有首頁精選與 Hot Deals 討論區各最新 25 則、不能搜尋，所以抓回來自己比對標題。
 // 介面（src/monitor.mjs 會呼叫）：search({ query, minPrice, maxPrice }, httpOptions) -> { total, items }
 import config from '../config.mjs';
 import { get, Blocked, requireSuccess } from './http.mjs';
@@ -9,20 +11,79 @@ import {
 } from './feed.mjs';
 
 const ENDPOINT = 'https://slickdeals.net/newsearch.php';
+const OFFICIAL_FEEDS = [
+  'https://feeds.feedburner.com/SlickdealsnetFP',
+  'https://feeds.feedburner.com/SlickdealsnetForums-9',
+];
 const MAX_AGE_HOURS = config.feeds?.maxAgeHours ?? 48;
+const SEARCH_BLOCK_MS = 6 * 36e5; // 搜尋被擋過就記 6 小時，這段時間直接讀官方 feed，不再去敲 Cloudflare
+const FEED_TTL = 60e3; // 同一輪的關鍵字共用一次抓取
+
+let searchBlockedUntil = 0;
+let queue = Promise.resolve();
+let feedCache = null; // { t, items }
+let feedJob = null; // 進行中的抓取
+
+// 測試用：清掉快取與被擋的記憶
+export function resetCache() {
+  searchBlockedUntil = 0;
+  queue = Promise.resolve();
+  feedCache = null;
+  feedJob = null;
+}
+
+export const usingOfficialFeeds = () => Date.now() < searchBlockedUntil;
 
 export function searchUrl(query) {
   return `${ENDPOINT}?q=${encodeURIComponent(query ?? '')}&searcharea=deals&searchin=first&rss=1`;
 }
 
 export async function search({ query, minPrice, maxPrice, maxAgeHours } = {}, httpOptions) {
-  const response = await get('sd', searchUrl(query), httpOptions);
-  requireSuccess('Slickdeals', response);
-  const items = parse(response.body ?? '').filter(item => isFresh(item, maxAgeHours));
+  const found = (await searchRss(query, httpOptions)) ?? (await officialMatches(query, httpOptions));
+  const items = found.filter(item => isFresh(item, maxAgeHours));
   return {
     total: items.length,
     items: items.filter(item => (minPrice == null || item.price >= minPrice) && (maxPrice == null || item.price <= maxPrice)),
   };
+}
+
+// 搜尋 RSS 一次發一個：第一個被擋，排在後面的關鍵字就不會再去敲。被擋時回傳 null
+function searchRss(query, httpOptions) {
+  const job = queue.then(async () => {
+    if (usingOfficialFeeds()) return null;
+    try {
+      const response = await get('sd', searchUrl(query), httpOptions);
+      requireSuccess('Slickdeals', response);
+      return parse(response.body ?? '');
+    } catch (err) {
+      if (!(err instanceof Blocked)) throw err;
+      searchBlockedUntil = Date.now() + SEARCH_BLOCK_MS;
+      return null;
+    }
+  });
+  queue = job.catch(() => {});
+  return job;
+}
+
+// 官方 feed 裡名稱包含 query 每個字的貼文
+async function officialMatches(query, httpOptions) {
+  const words = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
+  const items = await officialItems(httpOptions);
+  return items.filter(item => words.every(word => item.name.toLowerCase().includes(word)));
+}
+
+function officialItems(httpOptions) {
+  if (feedCache && Date.now() - feedCache.t < FEED_TTL) return Promise.resolve(feedCache.items);
+  return feedJob ??= Promise.all(OFFICIAL_FEEDS.map(async url => {
+    const response = await get('sd', url, httpOptions);
+    requireSuccess('Slickdeals 官方 feed', response);
+    return parse(response.body ?? '');
+  })).then(lists => {
+    // 同一篇可能同時在首頁和討論區
+    const items = [...new Map(lists.flat().map(item => [item.key, item])).values()];
+    feedCache = { t: Date.now(), items };
+    return items;
+  }).finally(() => { feedJob = null; });
 }
 
 function isFresh(item, maxAgeHours) {
