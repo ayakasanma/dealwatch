@@ -20,6 +20,7 @@ import { Browser } from './browser.mjs';
 import { startUi } from './ui.mjs';
 import { scanStatus } from './scan-status.mjs';
 import { buildMarket, makePricer, foldMarket, judge, msrpOf } from './market.mjs';
+import { laptopRamEvidence, shouldNotifyDeal, sortAlertsByPriority } from './laptop-ram.mjs';
 import { c, printTable, alertLine, offPct, push, pushTargets } from './notify.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -293,7 +294,11 @@ async function judgeItems(store, items) {
     item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
     // 指定商品有設到價通知的話，到價就算撿漏
     const target = item.watch?.maxPrice;
-    if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
+    if (target && item.price <= target) {
+      const ram = item.cat === 'laptop' ? laptopRamEvidence(item) : null;
+      item.deal = { ...item.deal, steal: true, ...(ram && { priority: ram.priority, ramEvidence: ram }),
+        reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知${ram ? `｜RAM ${ram.gb ?? '?'}GB：${ram.label}` : ''}` };
+    }
     if (knownSoldOut(item)) markSoldOut(item);
   }
   // 判斷完才把這一輪的行情併進市價表。撿漏本身不併，它還在的期間才會一直維持 ★
@@ -301,7 +306,9 @@ async function judgeItems(store, items) {
 }
 
 // 還沒通知過的撿漏
-const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, config.alert.dropPct));
+const pendingSteals = items => sortAlertsByPriority(items.filter(i =>
+  shouldNotifyDeal(i, config.steals.minLaptopNotifyPriority) && state.needsNotify(i, config.alert.dropPct))
+  .map(item => ({ item }))).map(a => a.item);
 
 // 庫存查詢結果記 30 分鐘。key -> { t, ok }，ok 為 false 表示確定售完
 const stockCache = new Map();
@@ -435,7 +442,7 @@ async function cmdIngest(files) {
   const items = sortItems([...found.values()]);
   await judgeItems('wm', items);
   const alerts = state.update('wm', items, catNames, config.alert);
-  const steals = (await confirmSteals(items)).map(item => ({ why: 'STEAL', item }));
+  const steals = sortAlertsByPriority((await confirmSteals(items)).map(item => ({ why: 'STEAL', item })));
   for (const s of steals) state.markNotified(s.item);
   state.save();
   state.writeJson('last.json', items);
@@ -506,7 +513,7 @@ async function cmdWatch({ ui = false } = {}) {
 
   const handle = async (r, alerts) => {
     current[r.store] = r.items;
-    const steals = (await confirmSteals(r.items)).map(item => ({ why: 'STEAL', item }));
+    const steals = sortAlertsByPriority((await confirmSteals(r.items)).map(item => ({ why: 'STEAL', item })));
     const stealKeys = new Set(steals.map(s => s.item.key));
     // 撿漏用自己的格式印（含估值說明），同一件就不再重複印上新 / 降價
     const plain = alerts.filter(a => !stealKeys.has(a.item.key));
