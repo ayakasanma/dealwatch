@@ -95,6 +95,9 @@ export default {
     // 估不出零件價的品項（筆電）用規則，命中任一條就算撿漏。可用欄位：
     //   store ('bb'|'wm')、cat、match（比對標題）、cpu / gpu（比對表格的 cpu / gpu 欄）、minGpu（效能至少這個等級）、
     //   minRamGB、kind（'ob' open-box、'refurb' 整新、'new' 全新）、maxPrice
+    // high: explicit factory >=32GB; medium: listed >=32GB, factory unverified; low: 16GB, unknown or upgraded.
+    // Keep lower-tier deals visible; change to 'low' to also push them.
+    minLaptopNotifyPriority: 'medium',
     rules: [
       {
         name: 'ROG Zephyrus G14（386H / 5070 Ti / 32GB）open-box 或整新低於 $2200',
