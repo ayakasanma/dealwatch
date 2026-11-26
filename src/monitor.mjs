@@ -18,11 +18,11 @@ import { Blocked, setPace } from './http.mjs';
 import { evaluate, parseSpecs } from './specs.mjs';
 import { State } from './state.mjs';
 import { addToCart, openUrl } from './cart.mjs';
-import { Browser } from './browser.mjs';
+import { storeTabs } from './browser.mjs';
 import { startUi } from './ui.mjs';
 import { scanStatus } from './scan-status.mjs';
 import { buildMarket, makePricer, foldMarket, judge, msrpOf } from './market.mjs';
-import { c, printTable, alertLine, offPct, push, pushTargets } from './notify.mjs';
+import { c, printTable, alertLine, failWatch, offPct, push, pushTargets, worthPush } from './notify.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // 金鑰放 .env（不進版控），沒有這個檔就略過
@@ -42,6 +42,8 @@ const cdpUrl = process.env.DEALWATCH_CDP_URL || config.walmart.cdpUrl || '';
 const walmartVia = process.env.WALMART_VIA || config.walmart.via;
 // 有設 ZIP_CODE 就蓋過 config.zip；設成空字串代表不限定取貨地點
 if (process.env.ZIP_CODE !== undefined) config.zip = process.env.ZIP_CODE.trim();
+// 有設 NOTIFY_ONLY_STEALS 就蓋過 config.notify.onlySteals；設成 false 代表符合 notify.plain 的上新 / 降價也推
+if (process.env.NOTIFY_ONLY_STEALS !== undefined) config.notify.onlySteals = process.env.NOTIFY_ONLY_STEALS.trim() !== 'false';
 for (const [store, key] of [['bb', 'BESTBUY_INTERVAL_SEC'], ['wm', 'WALMART_INTERVAL_SEC'], ['wt', 'WOOT_INTERVAL_SEC'], ['ne', 'NEWEGG_INTERVAL_SEC'], ['eb', 'EBAY_INTERVAL_SEC'], ['mc', 'MICROCENTER_INTERVAL_SEC'], ['sd', 'SLICKDEALS_INTERVAL_SEC'], ['rd', 'REDDIT_INTERVAL_SEC']]) {
   if (+process.env[key] > 0) config.intervalSec[store] = +process.env[key];
 }
@@ -111,17 +113,18 @@ const watchlist = (config.watchlist ?? []).map(parseWatch).filter(w => w && stor
 const time = () => new Date().toTimeString().slice(0, 8);
 setPace('wm', 2, config.walmart.gapMs);
 
+// 每家要用瀏覽器的店各一個分頁，都在同一個瀏覽器裡（避免驗證頁與 hold 互蓋）
+const tabs = storeTabs({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl }, ['wm', 'ne', 'eb', 'mc', 'rd']);
 // Walmart 直接請求被擋時改用獨立的瀏覽器視窗；被擋過就記 6 小時，這段時間直接走瀏覽器不再白試
-const wmBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl });
+const wmBrowser = tabs.wm;
 walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.readJson('walmart-mode.json')?.browserUntil ?? 0) > Date.now() });
-// Newegg 被 Cloudflare 擋時也改用同一個瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
-newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
-// eBay / Micro Center 直接請求一律被擋，只能用瀏覽器；在同一個瀏覽器另開一個分頁，不跟 Walmart / Newegg 搶同一個分頁排隊
-const shopBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl, parent: wmBrowser });
-ebay.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.ebay });
-microcenter.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.microcenter });
-// Reddit 於 2026/11 停用公開 RSS，有瀏覽器時改由專用瀏覽器載入 r/buildapcsales/new/
-reddit.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.reddit });
+// Newegg 被 Cloudflare 擋時也改用瀏覽器；WALMART_VIA=http（沒有瀏覽器的部署）就只走直接請求
+newegg.configure({ browser: walmartVia === 'http' ? null : tabs.ne });
+// eBay / Micro Center 直接請求一律被擋，只能用瀏覽器；WALMART_VIA=http 時不啟動瀏覽器
+ebay.configure({ browser: walmartVia === 'http' ? null : tabs.eb, ...config.ebay });
+microcenter.configure({ browser: walmartVia === 'http' ? null : tabs.mc, ...config.microcenter });
+// Reddit 於 2026/11 停用公開 RSS，有瀏覽器時改由獨立分頁載入 r/buildapcsales/new/
+reddit.configure({ browser: walmartVia === 'http' ? null : tabs.rd, ...config.reddit });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -355,6 +358,14 @@ async function judgeItems(store, items) {
 // 還沒通知過的撿漏
 const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, alertOpts(i.store).dropPct));
 
+// 這一輪要跟撿漏一起推的上新 / 降價，條件見 config.notify.plain
+function plainToPush(alerts, stealCount) {
+  if (config.notify.onlySteals) return [];
+  const rule = config.notify.plain;
+  if (!rule) return alerts;
+  return state.takePushQuota(alerts.filter(a => worthPush(a, rule) && state.needsPush(a.item, alertOpts(a.item.store).dropPct)), stealCount, rule.dailyMax);
+}
+
 // 庫存查詢結果記 30 分鐘。key -> { t, ok }，ok 為 false 表示確定售完
 const stockCache = new Map();
 const STOCK_TTL = 30 * 60e3;
@@ -365,7 +376,7 @@ const ebayVerifyCache = new Map();
 async function verifyEbay(item) {
   const hit = ebayVerifyCache.get(item.key);
   if (hit && Date.now() - hit.t < STOCK_TTL) return hit;
-  if (!ebay.hasBrowser() || shopBrowser.hold) return null;
+  if (!ebay.hasBrowser() || tabs.eb.hold) return null;
   try {
     const [live] = await ebay.product(item.id);
     const res = !live || !live.inStock ? { t: Date.now(), ok: false, reason: '已結束或售完' }
@@ -528,7 +539,9 @@ async function cmdIngest(files) {
   await judgeItems('wm', items);
   const alerts = state.update('wm', items, catNames, config.alert);
   const steals = (await confirmSteals(items)).map(item => ({ why: 'STEAL', item }));
+  const stealKeys = new Set(steals.map(s => s.item.key));
   for (const s of steals) state.markNotified(s.item);
+  const pushes = [...steals, ...plainToPush(alerts.filter(a => !stealKeys.has(a.item.key)), steals.length)];
   state.save();
   state.writeJson('last.json', items);
   for (const a of [...alerts, ...steals]) state.appendLine('alerts.jsonl', { t: new Date().toISOString(), why: a.why, prev: a.prev, ...a.item });
@@ -538,7 +551,7 @@ async function cmdIngest(files) {
     console.log(c.dim(`\n${files.length} 個檔案，${items.length} 筆符合`));
     for (const a of [...alerts, ...steals]) console.log(alertLine(a));
   }
-  await push(config.notify, config.notify.onlySteals ? steals : [...steals, ...alerts]);
+  await push(config.notify, pushes);
 }
 
 async function cmdQuery(query) {
@@ -631,6 +644,7 @@ async function cmdWatch({ ui = false } = {}) {
     }
     if (!steals.length && !plain.length) return;
     for (const s of steals) state.markNotified(s.item);
+    const pushes = [...steals, ...plainToPush(plain, steals.length)];
     state.save();
     if (!headless) process.stdout.write('\x07');
     if (flags['auto-cart'] && !flags.headless) {
@@ -639,11 +653,12 @@ async function cmdWatch({ ui = false } = {}) {
         if (s.item.cartUrl) await addToCart(s.item, config.cart); else openUrl(s.item.url, config.cart.browser);
       }
     }
-    await push(config.notify, config.notify.onlySteals ? steals : [...steals, ...plain]);
+    await push(config.notify, pushes);
   };
 
   const loop = async store => {
     let backoff = 1;
+    const watchFail = failWatch(config.notify.failWarn);
     for (;;) {
       while (paused.has(store)) {
         status[store] = { ...status[store], scanning: false, paused: true, next: null };
@@ -653,8 +668,9 @@ async function cmdWatch({ ui = false } = {}) {
       const r = await scanStore(store);
       watchStatus[store] = r.watch;
       const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) || (store === 'rd' && reddit.usingBrowser()) || store === 'eb' || store === 'mc' };
+      const failWarning = watchFail(failed(r));
       if (failed(r)) {
-        if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
+        if (failWarning) await push(config.notify, [], `⚠️ ${STORES[store]} ${failWarning}（${r.errors[0]}），已自動拉長間隔重試`);
         backoff = Math.min(backoff * 2, 16);
         console.log(`${c.dim(time())} ${c.red(`${STORES[store]} 查詢失敗: ${r.errors.join('; ')}`)} → 間隔 x${backoff}`);
         status[store] = scanStatus(status[store], summaryOf, { failed: true, errors: r.errors, count: r.items.length });
@@ -722,7 +738,7 @@ async function cmdWatch({ ui = false } = {}) {
 
 // 結束前把自己開的瀏覽器關掉
 async function quit(code) {
-  await shopBrowser.dispose();
+  await Promise.all([tabs.ne, tabs.eb, tabs.mc, tabs.rd].map(tab => tab.dispose()));
   await wmBrowser.dispose();
   process.exit(code);
 }

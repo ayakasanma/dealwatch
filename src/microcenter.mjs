@@ -73,7 +73,8 @@ async function fetchPage(url) {
   const html = await load(url);
   if (isBlockedPage(html)) {
     await holdForHuman();
-    throw new Blocked(BLOCKED_MESSAGE);
+    const title = decode(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]).slice(0, 60);
+    throw new Blocked(title ? `${BLOCKED_MESSAGE}（頁面標題：${title}）` : BLOCKED_MESSAGE);
   }
   browser.hold = false;
   return html;

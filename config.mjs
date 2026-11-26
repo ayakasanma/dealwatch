@@ -86,7 +86,17 @@ export default {
     lineToken: '', // Channel access token (long-lived)，有填就優先用這個
     lineTo: '',    // 你的 userId（U 開頭）。留空 = 廣播給這個官方帳號的所有好友
     lineDailyMax: 6, // 免費方案每月 200 則，一天 6 則剛好用不完；同一輪的提醒會併成一則
-    onlySteals: true, // true = 只推符合下方 steals 標準的撿漏；false = 上新 / 降價也全部推
+    onlySteals: true, // true = 只推符合下方 steals 標準的撿漏；false = 再加上符合 plain 的上新 / 降價
+    // 上新 / 降價要符合這些才推，只影響推播，網頁和 data/alerts.jsonl 照樣全記。想全推就設成 null
+    plain: {
+      minDropPct: 10,    // 這次至少要降這麼多 %
+      maxOverPct: 30,    // 有撿漏估值的商品，降價後最多比估值貴這麼多 %
+      newMaxOverPct: 10, // 上新只推有估值、而且最多比估值貴這麼多 % 的；筆電估不出價，上新不推
+      dailyMax: 15,      // 一天最多幾則，撿漏算在內，但撿漏本身不會被擋
+    },
+    // 查詢失敗的 ⚠️：連續失敗超過 maxStreak 次，或最近 window 輪失敗超過 maxFails 次才發，同一段問題只發一次，恢復正常才會再發。
+    // 只影響推播：日誌、網頁狀態和自動拉長間隔都照舊；計數放記憶體，重啟歸零。maxStreak 設成 0 就是每段失敗都發
+    failWarn: { window: 100, maxFails: 20, maxStreak: 2 },
     discordWebhook: '',
     telegramToken: '',
     telegramChatId: '',

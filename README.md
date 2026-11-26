@@ -89,7 +89,8 @@ node dealwatch.mjs notify-test
 
 免費方案每月只能推 200 則，所以腳本把同一輪的提醒併成一則，用 `lineDailyMax`（預設一天 6 則）控制用量，
 而且預設只推「撿漏」（見下一節）。上新 / 降價在終端機和 `data/alerts.jsonl` 仍然都有；
-想全部都推就把 `notify.onlySteals` 改成 `false`。
+想連夠便宜的上新 / 降價也推，就把 `notify.onlySteals` 改成 `false`（或設環境變數 `NOTIFY_ONLY_STEALS=false`），
+條件在 `notify.plain`：降幅、最多比撿漏估值貴多少、一天幾則。同一件要比上次推的再便宜才會再推；`notify.plain` 設成 `null` 就全部都推。
 
 ## 其他推播管道
 
@@ -145,11 +146,12 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
 - **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新；被 Cloudflare 擋時會改用專用 Chrome 載入，並於記憶體記憶 6 小時。
 - **eBay**：直接請求一律被擋，只能用同一個 Chrome 另開分頁載入搜尋頁（最新上架、只看直購、限定 eBay 分類與美國境內出貨）。
   價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手，並排除競標與多規格價格區間商品。
+  eBay 依連線的國家顯示當地幣別，頁面上沒有原始美金價；不是美金時用每日匯率換算（[Rates By Exchange Rate API](https://www.exchangerate-api.com)），通知和表格的價格是約略值，以商品頁為準。
   連續載入太快會回錯誤頁，所以每次載入至少隔 10 秒、10 分鐘一輪。
   為避免新上架與小幅調價洗版，eBay 預設關閉「上新」通知（`ebay.alertNew: false`），且需大降價（`ebay.dropPct`，預設 15%）或符合撿漏標準才會通知，並在通知前再開商品頁二次確認非競標／多規格低價且仍在售。
   eBay 的整機多半是賣家自己組的，零件估值不準，預設不算撿漏（只列在表格裡）；要算就在 `ebay.stealCats` 加回 `'desktop'`。
 - **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
-- **Slickdeals、r/buildapcsales**：Slickdeals 讀關鍵字搜尋 RSS；Reddit 因 2026/11 停用公開 RSS，改由專用瀏覽器載入 `r/buildapcsales/new/` 頁面解析（每輪只載入一次並快取 60 秒，遇到登入牆或驗證時交由使用者手動處理）。每篇貼文當成一件商品，價格、規格、店名從標題與連結解析，
+- **Slickdeals、r/buildapcsales**：Slickdeals 讀關鍵字搜尋 RSS，被 Cloudflare 擋（例如從 NAS 連線）時改讀發布在 FeedBurner 的官方 feed（首頁精選、Hot Deals 討論區各最新 25 則），自己比對標題，6 小時後才再試一次搜尋；Reddit 因 2026/11 停用公開 RSS，改由專用瀏覽器獨立分頁載入 `r/buildapcsales/new/` 頁面解析（每輪只載入一次並快取 60 秒，遇到登入牆或驗證時交由使用者手動處理）。每篇貼文當成一件商品，價格、規格、店名從標題與連結解析，
   再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
   「開商品頁」會開商品網址（Slickdeals 是討論串）。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），

@@ -170,15 +170,15 @@ test('五個分類的 type 都能被 config 的正規式比對', async () => {
   }
 });
 
-test('人機驗證頁丟 Blocked，保留頁面、帶到最前面', async () => {
-  for (const html of [
-    '<html><head><title>Just a moment...</title></head></html>',
-    '<html><head><title>Access Denied</title></head></html>',
-    '<html><body>Pardon Our Interruption</body></html>',
+test('人機驗證頁丟 Blocked，保留頁面、帶到最前面，且訊息附帶頁面標題', async () => {
+  for (const [html, expectedTitle] of [
+    ['<html><head><title>Just a moment...</title></head></html>', /Just a moment/],
+    ['<html><head><title>Access Denied</title></head></html>', /Access Denied/],
+    ['<html><body>Pardon Our Interruption</body></html>', null],
   ]) {
     const { browser } = mock(() => html);
     configure({ browser, storeId: '165', gapMs: 0 });
-    await assert.rejects(search({ query: 'rtx' }), err => err instanceof Blocked && err.code === 'blocked' && /瀏覽器/.test(err.message));
+    await assert.rejects(search({ query: 'rtx' }), err => err instanceof Blocked && err.code === 'blocked' && /瀏覽器/.test(err.message) && (!expectedTitle || expectedTitle.test(err.message)));
     assert.equal(browser.hold, true);
     assert.equal(browser.keepOpen, true);
     assert.equal(browser.focused, true);
