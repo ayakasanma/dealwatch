@@ -128,10 +128,16 @@ export function typeOf(name, bracket = '') {
   const memoryKit = /\bddr[45]\b/i.test(text) && /\b(ram|memory|kit|dimm|sodimm)\b/i.test(text)
     && !/\b(?:ryzen|core\s+(?:i\d|ultra)|rtx|gtx|geforce|radeon|rx\s*\d)/i.test(text);
   const computer = !memoryKit && (laptop || desktop);
+  const hasMobo = /\b(?:motherboard|mobo|(?:X870E|X670E|B650E|X870|X670|B850|B650|Z890|Z790|B860|B760)(?:[MIS](?![A-Za-z0-9])|(?![A-Za-z0-9])))\b/i.test(text);
+  const bundle = !computer && hasMobo && (
+    /\b(?:bundle|combo|kit)\b/i.test(text)
+    || /\b(?:ryzen|core\s+(?:i\d|ultra)|\d{4}x3d|\d{4}x|2[468]5kf?)\b/i.test(text)
+  );
   const hints = [];
-  if (!computer && /(?:geforce|radeon|arc)\b|\b(?:rtx|gtx|rx)[\s-]*\d{3,4}/i.test(text)) hints.push('graphics card gpu');
-  if (!computer && (memoryKit || (/\bddr[45]\b/i.test(text) && /\b(ram|memory|kit|dimm|sodimm)\b/i.test(text)))) hints.push('memory ram');
-  if (!computer && /\b(?:processor|cpu)\b/i.test(text) && !/food processor/i.test(text)) hints.push('processor cpu');
+  if (bundle) hints.push('bundle combo');
+  if (!computer && !bundle && /(?:geforce|radeon|arc)\b|\b(?:rtx|gtx|rx)[\s-]*\d{3,4}/i.test(text)) hints.push('graphics card gpu');
+  if (!computer && !bundle && (memoryKit || (/\bddr[45]\b/i.test(text) && /\b(ram|memory|kit|dimm|sodimm)\b/i.test(text)))) hints.push('memory ram');
+  if (!computer && !bundle && /\b(?:processor|cpu)\b/i.test(text) && !/food processor/i.test(text)) hints.push('processor cpu');
   if (computer && laptop) hints.push('laptop notebook');
   else if (computer && desktop) hints.push('desktop gaming pc');
   const words = [BRACKET_TYPE[tag] ?? '', ...hints].join(' ').split(/\s+/).filter(Boolean);

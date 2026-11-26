@@ -75,9 +75,15 @@ export function parseRamKit(text) {
   return { sticks, per: total / sticks, total, ddr };
 }
 
+// 從標題抽出主流桌機主機板晶片組（含 mATX / ITX / S 後綴，例如 B850M、B650I、X870E-P）
+export function parseMobo(text) {
+  const m = String(text ?? '').match(/\b(X870E|X670E|B650E|X870|X670|B850|B650|Z890|Z790|B860|B760)(?:[MIS](?![A-Za-z0-9])|(?![A-Za-z0-9]))/i);
+  return m ? m[1].toUpperCase() : '';
+}
+
 export function parseSpecs(text) {
   const g = parseGpu(text);
-  return { cpu: parseCpu(text), gpu: g?.gpu ?? '', gpuScore: g?.score ?? 0, ...parseMemDisk(text) };
+  return { cpu: parseCpu(text), gpu: g?.gpu ?? '', gpuScore: g?.score ?? 0, mobo: parseMobo(text), ...parseMemDisk(text) };
 }
 
 // 符合分類條件就回傳 specs，否則回傳 null
@@ -91,6 +97,7 @@ export function evaluate(cat, item) {
   if (cat.maxPrice && item.price > cat.maxPrice) return null;
   const specs = parseSpecs(text);
   if (cat.minGpu && specs.gpuScore < gpuScore(cat.minGpu)) return null;
+  if (cat.requireMobo && !specs.mobo) return null;
   if (cat.minStickGB) {
     const kit = parseRamKit(text);
     if (!kit || kit.per < cat.minStickGB) return null;

@@ -1,7 +1,7 @@
 # dealwatch
 
 監控 Best Buy（open-box / refurbished）、Walmart（最新上架）、Woot（限時特賣）、Newegg、eBay（直購）、Micro Center，
-以及 Slickdeals 和 Reddit r/buildapcsales 上網友回報的 deal，範圍是筆電、整機、高階 CPU、顯卡、記憶體，有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
+以及 Slickdeals 和 Reddit r/buildapcsales 上網友回報的 deal，範圍是筆電、整機、高階 CPU、顯卡、記憶體、CPU + 主機板套組，有上新或降價就提醒，並用你自己已登入的瀏覽器一鍵加入購物車、跳到結帳頁。
 
 零 npm 依賴。完整功能使用 Node.js 22 以上；Node.js 20 可執行直接 HTTP 診斷與 `WALMART_VIA=http` 模式，瀏覽器功能需要內建 WebSocket。
 
@@ -59,7 +59,7 @@ node dealwatch.mjs ui
 - `zip`：填你的郵遞區號。Best Buy 的 open-box 多半只能門市取貨，填了才會以你附近的庫存為準。
 - `categories`：每個分類的搜尋關鍵字（`queries.bestbuy` / `walmart` / `woot` / `newegg` / `ebay` / `microcenter` / `slickdeals` / `reddit`，各來源分開設）與過濾條件。預設是
   筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RX 9070 XT / RTX 5070 Ti 以上）、
-  記憶體（DDR5、單條 16GB 以上）。
+  記憶體（DDR5、單條 16GB 以上）、套組（高階 CPU + 主機板晶片組，含選配記憶體，涵蓋 Micro Center / Newegg / Slickdeals / Reddit）。
 - `intervalSec`：watch 的輪詢間隔。
 - `watchlist`：指定商品，不依賴搜尋排名，每輪直接查價格。Walmart 同時讀取商品頁的庫存欄位；Best Buy 自營的全新 / 整新品會查庫存，open-box 與第三方賣家的庫存見「已知限制」。
   每一項填商品網址（Best Buy、Walmart、Woot 的 `/offers/...`、Newegg 的 `.../p/<編號>`、eBay 的 `/itm/<編號>`、Micro Center 的 `/product/<編號>/...` 都可以），或 `{ store: 'bb', id: 'SKU' }`；
@@ -118,6 +118,7 @@ node dealwatch.mjs notify-test
   而且只有新上架或剛降價的才算——一直都是最低價的那個賣家不算。
 - **整機**：售價需低於「CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價 + `buildAllowance`（主機板、電源、機殼、散熱、Windows，預設 $350）」再減 `desktopMargin`（預設 6%）；若為整新品或 open-box，估值會再套用 `desktopUsedDiscount`（預設折 10%）。只看顯卡在 `desktopMinGpu`（預設 RX 9070 XT / RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
+- **套組（`bundle`）**：CPU + 主機板（可選含記憶體 / SSD），以「CPU 撿漏價 + 主機板晶片組參考價（`msrp.mobo`）+ 記憶體 / SSD 撿漏價」加總後再減 `bundleMargin`（預設 5%）；非全新品同樣套用 `desktopUsedDiscount`（預設折 10%）。
 - **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前四條：
   ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
   任何 RTX 5070 Ti 筆電低於 $1450、

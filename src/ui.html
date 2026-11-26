@@ -126,7 +126,7 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const money = n => n == null ? '' : '$' + Number(n).toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
 const ago = t => { if (!t) return '尚未完成'; const s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 60 ? `${s} 秒前` : s < 3600 ? `${Math.round(s / 60)} 分鐘前` : `${Math.round(s / 3600)} 小時前`; };
-const CAT = { laptop: '筆電', desktop: '整機', cpu: 'CPU', gpu: '顯卡', ram: '記憶體' };
+const CAT = { laptop: '筆電', desktop: '整機', cpu: 'CPU', gpu: '顯卡', ram: '記憶體', bundle: '套組' };
 const WHY = { STEAL: '撿漏', NEW: '上新', DROP: '降價' };
 
 const saved = JSON.parse(localStorage.getItem('dealwatch') || '{}');
@@ -164,7 +164,7 @@ function filtered() {
     (view.cat === 'all' || i.cat === view.cat) &&
     (!view.steals || i.deal?.steal) &&
     i.off >= view.minoff &&
-    (!q || `${i.name} ${i.seller} ${i.id} ${i.specs.cpu} ${i.specs.gpu}`.toLowerCase().includes(q)));
+    (!q || `${i.name} ${i.seller} ${i.id} ${i.specs.cpu} ${i.specs.gpu} ${i.specs.mobo ?? ''}`.toLowerCase().includes(q)));
   const col = COLS.find(c => c.key === view.sort);
   if (col?.get) items = [...items].sort((a, b) => { const x = col.get(a), y = col.get(b); return (x > y ? 1 : x < y ? -1 : 0) * view.dir; });
   return items;

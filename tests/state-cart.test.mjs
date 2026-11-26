@@ -6,7 +6,8 @@ import path from 'node:path';
 import { State } from '../src/state.mjs';
 import { addToCart } from '../src/cart.mjs';
 import { CHECKOUT_URL } from '../src/bestbuy.mjs';
-import { evaluate } from '../src/specs.mjs';
+import { evaluate, parseMobo } from '../src/specs.mjs';
+import { typeOf } from '../src/feed.mjs';
 import { judge, makePricer } from '../src/market.mjs';
 import config from '../config.mjs';
 
@@ -140,4 +141,72 @@ test('整機估值套用 buildAllowance $350、desktopMargin 6% 與非全新 10%
   // 9800X3D + 5080 + 32GB + 1TB 全新整機約 $2,400 以下才算撿漏
   assert.equal(checkDesktop('Gaming Desktop PC Ryzen 7 9800X3D RTX 5080 32GB DDR5 1TB SSD', 2390).steal, true);
   assert.equal(checkDesktop('Gaming Desktop PC Ryzen 7 9800X3D RTX 5080 32GB DDR5 1TB SSD', 2450).steal, false);
+});
+
+test('parseMobo 與套組（bundle）分類及估值：以 Micro Center 5007482 驗證', () => {
+  assert.equal(parseMobo('MSI X870E-P Pro WiFi'), 'X870E');
+  assert.equal(parseMobo('ASUS ROG STRIX B650E-F Gaming WiFi'), 'B650E');
+  assert.equal(parseMobo('ASUS TUF GAMING B650-E WIFI'), 'B650');
+  assert.equal(parseMobo('GIGABYTE B850M AORUS ELITE WIFI6E'), 'B850');
+  assert.equal(parseMobo('ASRock B650I Lightning WiFi'), 'B650');
+  assert.equal(parseMobo('MSI MAG Z890 TOMAHAWK WIFI'), 'Z890');
+  assert.equal(parseMobo('ASUS PRIME B760M-A AX'), 'B760');
+  assert.equal(parseMobo('CyberPowerPC SLC8500WST Gaming PC'), '');
+
+  // Slickdeals 標題應歸類為 bundle 而非單獨記憶體
+  const sdName = 'AMD Ryzen 7 9800X3D, MSI X870E-P Pro WiFi, G.Skill Flare X5 Series 32GB DDR5-6000 Kit, Computer Build Bundle';
+  assert.match(typeOf(sdName), /bundle/);
+  assert.doesNotMatch(typeOf(sdName), /memory|ram/i);
+
+  const mcBundle = {
+    store: 'mc',
+    key: 'mc:5007482',
+    kind: 'new',
+    cond: 'New',
+    type: 'AMD Bundles',
+    name: sdName,
+    price: 849.99,
+  };
+  const specs = evaluate(config.categories.bundle, mcBundle);
+  assert.ok(specs, 'Micro Center 5007482 應符合 bundle 分類');
+  assert.equal(specs.cpu, 'r7 9800X3D');
+  assert.equal(specs.mobo, 'X870E');
+  assert.equal(specs.ram, '32G');
+  assert.equal(evaluate(config.categories.cpu, mcBundle), null, '套組不應落入 cpu 分類');
+  assert.equal(evaluate(config.categories.ram, mcBundle), null, '套組不應落入 ram 分類');
+
+  // 沒主機板或整機不應進入 bundle 分類
+  assert.equal(evaluate(config.categories.bundle, { type: 'AMD Bundles', name: 'AMD Ryzen 7 9800X3D + 32GB DDR5 Bundle', price: 600 }), null);
+  assert.equal(evaluate(config.categories.bundle, { type: 'Desktops', name: 'Gaming PC Ryzen 7 9800X3D X870E RTX 5080', price: 2400 }), null);
+
+  // 估值驗證：9800X3D ($340) + X870E ($210) + 32GB DDR5 ($280) = $830；bundleMargin 5% -> $788 以下為撿漏
+  const priceOf = makePricer({ prices: {} }, [], config.steals.override);
+  const judgeBundle = (name, price, { kind = 'new', cond = 'New' } = {}) => {
+    const item = { store: 'mc', key: `mc:b:${name}:${kind}:${price}`, cat: 'bundle', kind, cond, type: 'AMD Bundles', name, price };
+    item.specs = evaluate(config.categories.bundle, item);
+    return judge(item, priceOf, config.steals);
+  };
+
+  const regular = judgeBundle(sdName, 849.99);
+  assert.equal(regular.sum, 830);
+  assert.equal(regular.steal, false);
+  assert.match(regular.reason, /套組估值 \$830 = CPU 9800X3D 340 \+ 主機板 X870E 210 \+ RAM 32G DDR5 280/);
+
+  assert.equal(judgeBundle(sdName, 800).steal, false);
+  assert.equal(judgeBundle(sdName, 785).steal, true);
+
+  // Open-Box 套組再折 10%（$830 -> $747，5% margin -> <= $709）
+  assert.equal(judgeBundle(sdName, 720, { kind: 'ob', cond: 'Open-Box' }).steal, false);
+  assert.equal(judgeBundle(sdName, 699, { kind: 'ob', cond: 'Open-Box' }).steal, true);
+
+  // 僅 CPU + 主機板（不含 RAM）：9800X3D ($340) + B850 ($150) = $490，5% margin -> <= $465
+  const cpuMobo = judgeBundle('AMD Ryzen 7 9800X3D + GIGABYTE B850M AORUS ELITE WIFI6E Combo', 499);
+  assert.equal(cpuMobo.sum, 490);
+  assert.equal(cpuMobo.steal, false);
+  assert.equal(judgeBundle('AMD Ryzen 7 9800X3D + GIGABYTE B850M AORUS ELITE WIFI6E Combo', 460).steal, true);
+
+  // 2x16GB 格式也能正確估成 32G DDR5
+  const kit2x16 = judgeBundle('AMD Ryzen 7 9800X3D + MSI B650-P WiFi + 2x16GB DDR5-6000 Bundle', 700);
+  assert.equal(kit2x16.sum, 340 + 120 + 280);
+  assert.equal(kit2x16.steal, true);
 });

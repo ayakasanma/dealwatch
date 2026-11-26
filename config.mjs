@@ -106,7 +106,8 @@ export default {
     msrpPremium: 0.25,
     desktopMinGpu: 'RX 9070 XT', // 整機只有這個等級以上的顯卡才會被判成撿漏（含 RX 9070 XT / RTX 5070 Ti 以上）
     desktopMargin: 0.06,         // 整機至少要比自組估值低 6% 才算撿漏（5070 Ti 全新整機約 $2,100、5080 約 $2,400）
-    desktopUsedDiscount: 0.10,   // 整新 / Open-Box 整機估值再折 10%，避免用全新估值誤判整新品
+    desktopUsedDiscount: 0.10,   // 整新 / Open-Box 整機與套組估值再折 10%，避免用全新估值誤判整新品
+    bundleMargin: 0.05,          // CPU + 主機板套組至少要比套組估值低 5% 才算撿漏
     margin: 0.10,
     tooGood: 0.5,    // 低於估值一半視為假貨或標題解析錯誤，不算撿漏
     refreshHours: 6,
@@ -279,10 +280,25 @@ export default {
       type: /memory|ram/i,
       show: ['ram'],
       bestbuyConditions: ['Open-Box', 'Refurbished', 'New'],
-      exclude: /RDIMM|LRDIMM|\bECC\b|registered|server|laptop computer|gaming pc/i,
+      exclude: /RDIMM|LRDIMM|\bECC\b|registered|server|laptop computer|gaming pc|motherboard|build bundle|combo/i,
       minStickGB: 16,
       ddr: [5], // 要含 DDR4 就改成 [4, 5]
       minPrice: 40,
+    },
+
+    bundle: {
+      queries: {
+        microcenter: ['9800x3d bundle', '9950x3d bundle', '7800x3d bundle', 'computer build bundle'],
+        newegg: ['9800x3d combo', '9950x3d combo', 'ryzen motherboard bundle'],
+        slickdeals: ['9800x3d bundle', '9950x3d bundle', 'motherboard bundle', 'cpu combo'],
+        reddit: ['bundle', 'combo'],
+      },
+      type: /bundle|combo|kit|motherboard|processor|cpu/i,
+      include: /9800X3D|9950X3D|9900X3D|9850X3D|7800X3D|7950X3D|9950X\b|9900X\b|285K|265K|14900K|13900K/i,
+      exclude: /laptop|notebook|gaming pc|desktop pc|all-in-one|\bAIO\b|monitor|water block/i,
+      requireMobo: true,
+      minPrice: 250,
+      show: ['cpu', 'ram', 'disk'],
     },
   },
 };

@@ -265,7 +265,9 @@ function printWatch(list) {
 
 // 指定商品不套分類的過濾條件（等級、價格下限等），只用商品類型決定歸到哪一類
 function forceClassify(item) {
-  const name = Object.keys(config.categories).find(n => config.categories[n].type?.test(item.type || item.name));
+  const keys = Object.keys(config.categories);
+  const matchType = n => config.categories[n].type?.test(item.type || item.name);
+  const name = keys.find(n => matchType(n) && !config.categories[n].exclude?.test(item.name)) ?? keys.find(matchType);
   return name ? { ...item, cat: name, specs: parseSpecs(item.name), off: offPct(item) } : null;
 }
 
@@ -472,18 +474,19 @@ async function cmdNotifyTest() {
 function cmdMarket() {
   const street = state.readJson('market.json')?.prices ?? {};
   const { msrp, override, msrpPremium, margin } = config.steals;
-  const keys = new Set([...Object.keys(street), ...Object.keys(override), ...['cpu', 'gpu'].flatMap(kind => Object.keys(msrp[kind]).map(k => `${kind}:${k}`))]);
+  const keys = new Set([...Object.keys(street), ...Object.keys(override), ...['cpu', 'gpu', 'mobo'].flatMap(kind => Object.keys(msrp[kind] ?? {}).map(k => `${kind}:${k}`))]);
   console.log('零件'.padEnd(18) + 'MSRP'.padStart(8) + '市價'.padStart(8) + '撿漏價'.padStart(7));
   for (const key of [...keys].filter(k => !k.startsWith('ssd:')).sort()) {
     const m = msrpOf(key, msrp), s = street[key];
     // 跟 src/market.mjs 的判斷一致：指定價 > 被炒高時 MSRP 加溢價 > 比市價低 margin
     const [target, how] = override[key] != null ? [override[key], '你指定的']
+      : key.startsWith('mobo:') && m != null ? [m, '套組參考價']
       : m != null && s != null && s > m * 1.1 ? [Math.round(Math.min(m * (1 + msrpPremium), s * (1 - margin))), `MSRP +${Math.round(msrpPremium * 100)}%`]
       : m != null && s == null ? [m, 'MSRP（查無市價）']
       : [Math.round(Math.min(s, m ?? Infinity) * (1 - margin)), `比市價低 ${Math.round(margin * 100)}%，限新上架或剛降價`];
     console.log(key.padEnd(20) + String(m ?? '').padStart(8) + String(s ?? '').padStart(10) + String(target).padStart(10) + `  ${how}`);
   }
-  console.log(c.dim(`\n記憶體 MSRP 以每 GB 單價換算（DDR5 $${msrp.ramPerGB[5]}、DDR4 $${msrp.ramPerGB[4]}）；整機 = 各零件撿漏價加總 + $${msrp.buildAllowance}。`));
+  console.log(c.dim(`\n記憶體 MSRP 以每 GB 單價換算（DDR5 $${msrp.ramPerGB[5]}、DDR4 $${msrp.ramPerGB[4]}）；整機 = 各零件撿漏價加總 + $${msrp.buildAllowance}；套組 = CPU + 主機板 + 選配 RAM/SSD 估值 - ${Math.round((config.steals.bundleMargin ?? 0) * 100)}%。`));
   console.log(c.dim('MSRP 改 msrp.mjs；溢價比例與個別指定價改 config.mjs 的 steals.msrpPremium / steals.override。'));
 }
 

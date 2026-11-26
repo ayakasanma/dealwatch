@@ -94,11 +94,11 @@ export function foldMarket(market, items) {
   return changed;
 }
 
-// 查 MSRP 表。key 跟市價表同一套：cpu:9800X3D / gpu:5080 / ram:<DDR>:<GB>[:so] / ssd:<GB>
+// 查 MSRP 表。key 跟市價表同一套：cpu:9800X3D / gpu:5080 / mobo:X870E / ram:<DDR>:<GB>[:so] / ssd:<GB>
 export function msrpOf(key, table) {
   if (!table) return undefined;
   const [kind, a, b] = key.split(':');
-  if (kind === 'cpu' || kind === 'gpu') return table[kind]?.[a];
+  if (kind === 'cpu' || kind === 'gpu' || kind === 'mobo') return table[kind]?.[a];
   if (kind === 'ram') return table.ramPerGB?.[a] != null && +b > 0 ? Math.round(table.ramPerGB[a] * b) : undefined;
   if (kind === 'ssd') return table.ssdPerTB != null && +a > 0 ? Math.round(table.ssdPerTB * a / 1000) : undefined;
   return undefined;
@@ -107,7 +107,7 @@ export function msrpOf(key, table) {
 // 估值。估不出來回傳 null。
 // 參考價：你在 override 指定的最優先；否則 MSRP 與市價取低者。
 // 被炒高的零件（顯卡、記憶體）由 MSRP 把關，本來就賣得比 MSRP 便宜的（舊款 CPU）由市價把關。
-export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, desktopUsedDiscount = 0, msrpPremium = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
+export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, desktopUsedDiscount = 0, bundleMargin = 0, msrpPremium = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
   // 完全沒有別人在賣的零件，就拿它自己原本的價格當行情，不然只此一家的東西會永遠被拿去跟 MSRP 比
   const street = (key, self) => priceOf(key, item.key) ?? (self ? ownPrice : undefined);
   const ref = (key, self = false) => {
@@ -145,6 +145,22 @@ export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, deskt
       label = '自組估值';
       useMargin = desktopMargin;
     } else { label = '零件市價'; useMargin = margin; }
+  } else if (item.cat === 'bundle') {
+    const cpuName = cpuKey(item.specs.cpu), moboName = item.specs.mobo;
+    const cpu = cpuName && ref(`cpu:${cpuName}`), mobo = moboName && ref(`mobo:${moboName}`);
+    if (!cpu || !mobo) return null;
+    parts.push([`CPU ${cpuName}`, cpu.value], [`主機板 ${moboName}`, mobo.value]);
+    const parsedRam = parseInt(item.specs.ram) || 0;
+    const kitMatch = parsedRam && /(\d)\s*x\s*(\d{1,3})\s*GB?\b/i.exec(item.name);
+    const ramGB = kitMatch && +kitMatch[2] === parsedRam ? +kitMatch[1] * +kitMatch[2] : parsedRam;
+    const ddr = /DDR5/i.test(item.name) || /^[789]\d{3}|^2\d{2}/.test(cpuName) ? 5 : 4;
+    const ram = ramGB ? ref(`ram:${ddr}:${ramGB}`)?.value : 0;
+    if (ram) parts.push([`RAM ${ramGB}G DDR${ddr}`, ram]);
+    const gb = diskGB(item.specs.disk);
+    const ssd = gb ? ref(`ssd:${gb}`)?.value : 0;
+    if (ssd) parts.push([`SSD ${item.specs.disk}`, ssd]);
+    label = '套組估值';
+    useMargin = bundleMargin;
   } else {
     const key = item.cat === 'cpu' ? `cpu:${cpuKey(item.specs.cpu)}` : item.cat === 'gpu' ? `gpu:${item.specs.gpu}` : item.cat === 'ram' ? ramKey(item.name) : '';
     const r = key && ref(key, true);
@@ -163,7 +179,7 @@ export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, deskt
   }
 
   const rawSum = Math.round(parts.reduce((s, [, p]) => s + p, 0));
-  const usedAdj = item.cat === 'desktop' && item.kind !== 'new' && desktopUsedDiscount > 0;
+  const usedAdj = (item.cat === 'desktop' || item.cat === 'bundle') && item.kind !== 'new' && desktopUsedDiscount > 0;
   const sum = usedAdj ? Math.round(rawSum * (1 - desktopUsedDiscount)) : rawSum;
   const below = Math.round((1 - item.price / sum) * 100);
   // 整機只看高階顯卡的：低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆
