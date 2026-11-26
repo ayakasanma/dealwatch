@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Browser } from '../src/browser.mjs';
@@ -97,4 +98,11 @@ test('healthz 只表示存活；內容及控制端點仍需密碼與自訂標頭
   assert.equal(rescans, 0);
   assert.equal((await fetch(`${base}/api/rescan`, { method: 'POST', headers: { ...headers, 'x-dealwatch': '1' } })).status, 200);
   assert.equal(rescans, 1);
+});
+
+test('ui.html 不寫死 Walmart 人機驗證且僅對 Best Buy 跳轉 Best Buy 結帳頁', () => {
+  const html = fs.readFileSync(new URL('../src/ui.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(html, /Walmart 要求人機驗證/);
+  assert.match(html, /humanStores\.join/);
+  assert.match(html, /if\s*\(\s*store\s*===\s*'bb'\s*\)/);
 });

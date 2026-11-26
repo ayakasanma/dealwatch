@@ -5,7 +5,7 @@
 | 容器 | 映像檔 | 作用 |
 | --- | --- | --- |
 | `dealwatch` | `node:22-alpine` | 監控程式本體 + 網頁介面。程式沒有 npm 依賴，直接把這個資料夾唯讀掛進去跑，不需要 build |
-| `dealwatch-browser` | `lscr.io/linuxserver/chromium` | Walmart 用的 Chromium。有畫面，可以從別台電腦用瀏覽器連進來操作 |
+| `dealwatch-browser` | `lscr.io/linuxserver/chromium` | 共用 Chromium（Walmart、Newegg 備援、eBay、Micro Center 與 Best Buy 3P 驗庫存）。有畫面，可以從別台電腦用瀏覽器連進來操作 |
 
 `dealwatch` 透過容器內部的除錯埠遙控那個 Chromium，這個埠不對外。對外只有兩個埠：
 
@@ -149,7 +149,7 @@ Chromium 映像：第一次跑正常後，可以把當時的 digest 填進 `CHRO
 sudo docker-compose -f docker-compose.lite.yml up -d
 ```
 
-只跑 `dealwatch`。Best Buy 完全不受影響；Walmart 只用直接請求，被擋時沒有瀏覽器可以接手，
-會自動拉長間隔重試。這種情況可以讓 NAS 專心跑 Best Buy（把 compose 裡的指令改成
-`["node", "dealwatch.mjs", "ui", "--store", "bb"]`），Walmart 留在電腦上跑 `node dealwatch.mjs ui --store wm`。
+只跑 `dealwatch`，預設已排除必須依賴瀏覽器的 eBay 與 Micro Center（`--store bb,wm,wt,ne,sd,rd`）。Best Buy、Woot 與社群來源不受影響；Walmart／Newegg 只用直接請求，被擋時沒有瀏覽器可以接手，
+會自動拉長間隔重試。這種情況也可以讓 NAS 專心跑 Best Buy（把 compose 裡的指令改成
+`["node", "dealwatch.mjs", "ui", "--store", "bb"]`），其餘須瀏覽器的來源留在電腦上跑。
 精簡版只有一個容器，重開機後會自己起來，不需要上面的開機任務。

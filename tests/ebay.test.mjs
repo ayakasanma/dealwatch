@@ -258,3 +258,84 @@ test('同時多個搜尋會排隊，兩次載入至少間隔 gapMs', async () =>
   assert.equal(stamps.length, 2);
   assert.ok(stamps[1] - stamps[0] >= 60, `間隔只有 ${stamps[1] - stamps[0]}ms`);
 });
+
+test('多規格價格區間（拆分 span、巢狀 span、破折號、var 參數、See options）整筆略過', () => {
+  const card = (id, body) => `<li class="s-card" data-listingid="${id}">${body}</li>`;
+  const title = '<div class="s-card__title"><span>Core-Ultra 9 285K Gaming Ai Workstation PC</span></div>';
+  const html = [
+    // 1. 多規格拆成多個 s-card__price span
+    card('1', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$2,799.55</span><span> to </span><span class="s-card__price">$4,759.99</span></div>`),
+    // 2. 巢狀 span 包在 s-card__price 裡
+    card('2', `${title}<div class="s-card__attribute-row"><span class="s-card__price"><span>$2,799.55</span><span> to </span><span>$4,759.99</span></span></div>`),
+    // 3. 破折號區間
+    card('3', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$100.00 - $200.00</span></div>`),
+    // 4. 連結含 var= 多規格參數
+    card('4', `<a href="https://www.ebay.com/itm/4?var=123456">${title}</a><div class="s-card__attribute-row"><span class="s-card__price">$2,799.55</span></div>`),
+    // 5. 屬性列含 See options
+    card('5', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$2,799.55</span></div><div class="s-card__attribute-row"><span>See options</span></div>`),
+  ].join('');
+  assert.deepEqual(parseSearch(html, 179).items, []);
+});
+
+test('競標卡片略過；正常直購含 Only 2 left / Free delivery / Was 原價不誤殺', () => {
+  const card = (id, body) => `<li class="s-card" data-listingid="${id}">${body}</li>`;
+  const title = '<div class="s-card__title"><span>Core Ultra 9 285K Gaming PC RTX 5090</span></div>';
+  const html = [
+    card('1', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>0 bids</span></div>`),
+    card('2', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>5 bids</span></div>`),
+    card('3', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>or Buy It Now</span></div>`),
+    card('4', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>6d 12h left</span></div>`),
+    card('5', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>Time left: 2h 10m</span></div>`),
+    card('6', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$3,908.50</span></div><div class="s-card__attribute-row"><span>Starting bid</span></div>`),
+    card('7', `${title}<span class="s-card__price">$3,908.50</span><span class="s-card__bids">1 bid</span>`),
+    // 競標價 + 一口價雙 s-card__price
+    card('8', `${title}<div class="s-card__attribute-row"><span class="s-card__price">$2,500.00</span></div><div class="s-card__attribute-row"><span class="s-card__price">$4,500.00</span></div>`),
+    // 正常直購（不應誤殺）
+    card('9', `${title}<div class="s-card__attribute-row"><span>Was: $5,299.00</span></div><div class="s-card__attribute-row"><span class="s-card__price">$4,759.99</span></div><div class="s-card__attribute-row"><span>Only 2 left</span></div><div class="s-card__attribute-row"><span>Free delivery in 2-4 days</span></div>`),
+  ].join('');
+  const { items } = parseSearch(html, 179);
+  assert.deepEqual(items.map(i => [i.id, i.price, i.ref]), [['9', 4759.99, 5299]]);
+});
+
+test('單品頁 parseItem 辨識多規格（x-msku / AggregateOffer）與競標；script/style 不誤判', () => {
+  // 多規格 x-msku-evo 下拉選單
+  const mskuHtml = `<html><head><title>PC | eBay</title></head><body>
+    <h1>Core-Ultra 9 285K PC</h1>
+    <div class="x-price-primary"><span>US $2,799.55</span></div>
+    <div class="x-msku-evo"><select><option>RTX 5080</option></select></div>
+  </body></html>`;
+  assert.equal(parseItem(mskuHtml, '128216406996')[0].multiVariation, true);
+
+  // AggregateOffer JSON-LD
+  const aggHtml = `<html><head><title>PC | eBay</title>
+    <script type="application/ld+json">${JSON.stringify({
+      '@type': 'Product',
+      name: 'Core-Ultra 9 285K PC',
+      offers: { '@type': 'AggregateOffer', lowPrice: '2799.55', highPrice: '4759.99', offerCount: 2, availability: 'https://schema.org/InStock' },
+    })}</script></head><body></body></html>`;
+  const [agg] = parseItem(aggHtml, '128216406996');
+  assert.equal(agg.multiVariation, true);
+  assert.equal(agg.itemPrice, 2799.55);
+
+  // 競標商品頁
+  const bidHtml = `<html><head><title>PC | eBay</title></head><body>
+    <h1>Core Ultra 9 285K PC</h1>
+    <div class="x-price-primary"><span>US $3,908.50</span></div>
+    <div class="x-bid-price">Current bid</div>
+    <button data-testid="x-bid-action">Place bid</button>
+  </body></html>`;
+  assert.equal(parseItem(bidHtml, '128214374878')[0].auction, true);
+
+  // 僅在 <script> / <style> 提及 x-msku 或 place bid 不誤判
+  const cleanHtml = `<html><head><title>PC | eBay</title>
+    <style>.x-msku-evo { display: none; }</style>
+    <script>window.__cfg = { msku: "x-msku", bid: "place bid", cls: "x-bid-price" };</script>
+    <script type="application/ld+json">${JSON.stringify({
+      '@type': 'Product',
+      name: 'RTX 5080 PC',
+      offers: { '@type': 'Offer', price: '4759.99', availability: 'https://schema.org/InStock' },
+    })}</script></head><body><h1>RTX 5080 PC</h1></body></html>`;
+  const [clean] = parseItem(cleanHtml, '999999999999');
+  assert.equal(clean.auction, undefined);
+  assert.equal(clean.multiVariation, undefined);
+});

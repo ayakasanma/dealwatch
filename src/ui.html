@@ -86,7 +86,7 @@
     <span id="stores"></span>
     <span class="pill" id="market"></span>
     <span class="spacer"></span>
-    <a id="view" class="linkbtn" target="_blank" rel="noopener" hidden title="遠端看 Walmart 用的瀏覽器畫面（處理人機驗證 / 登入）">遠端瀏覽器</a>
+    <a id="view" class="linkbtn" target="_blank" rel="noopener" hidden title="遠端看瀏覽器畫面（處理人機驗證 / 登入）">遠端瀏覽器</a>
     <button id="pushtest" title="送一則測試推播">測試推播</button>
     <button class="primary" id="rescan">立刻重掃</button>
   </div>
@@ -197,9 +197,9 @@ function render() {
   $('view').href = viewUrl;
 
   // 需要人去按驗證的時候，把入口直接擺在最上面
-  const needsHuman = Object.values(data.stores).some(s => s.needsHuman && s.error && !s.paused);
-  $('banner').hidden = !needsHuman;
-  if (needsHuman) $('banner').innerHTML = 'Walmart 要求人機驗證，需要你親手按一下。' + (viewUrl
+  const humanStores = Object.values(data.stores).filter(s => s.needsHuman && s.error && !s.paused).map(s => s.name);
+  $('banner').hidden = !humanStores.length;
+  if (humanStores.length) $('banner').innerHTML = `${esc(humanStores.join('、'))} 要求人機驗證，需要你親手按一下。` + (viewUrl
     ? `<a href="${esc(viewUrl)}" target="_blank" rel="noopener">開啟遠端瀏覽器視窗</a>，完成後回來按「立刻重掃」。`
     : '請到 dealwatch 開的那個瀏覽器視窗完成，再按「立刻重掃」。');
 
@@ -247,7 +247,7 @@ function render() {
       <span class="spacer"></span>${buyButton(a)}</div>`).join('');
 }
 
-// Best Buy 第三方賣家、Woot、社群回報的 deal 沒有加入購物車連結，只能開商品頁自己按
+// Best Buy 第三方賣家、Woot、Newegg 第三方、eBay、Micro Center、社群回報的 deal 沒有加入購物車連結，只能開商品頁自己按
 const STORE_NAMES = { bb: ['Best Buy', 'BB'], wm: ['Walmart', 'WM'], wt: ['Woot', 'WT'], ne: ['Newegg', 'NE'], eb: ['eBay', 'EB'], mc: ['Micro Center', 'MC'],sd: ['Slickdeals', 'SD'], rd: ['r/buildapcsales', 'RD'] };
 const storeName = code => STORE_NAMES[code]?.[0] ?? code;
 const storeShort = code => STORE_NAMES[code]?.[1] ?? String(code).toUpperCase();
@@ -264,8 +264,10 @@ const BB_CHECKOUT = 'https://www.bestbuy.com/checkout/r/fast-track';
 function openCart(url, store) {
   if (store === 'wm') { window.open(url.replace('/cart/addToCart?', '/cart/buynow?'), '_blank'); return; }
   const tab = window.open(url, '_blank');
-  // Best Buy：等加入購物車完成，再把同一個分頁帶到結帳頁
-  setTimeout(() => { try { tab.location.href = BB_CHECKOUT; } catch {} }, 3500);
+  if (store === 'bb') {
+    // Best Buy：等加入購物車完成，再把同一個分頁帶到結帳頁
+    setTimeout(() => { try { tab.location.href = BB_CHECKOUT; } catch {} }, 3500);
+  }
 }
 
 async function loadLog() {

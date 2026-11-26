@@ -17,13 +17,13 @@ export class State {
   // 某家店的某個分類第一次掃到時只建立基準，不發「上新」
   isSeeded(store, cat) { return !!this.seeded[`${store}:${cat}`]; }
 
-  update(store, items, catNames, { dropPct = 3 } = {}) {
+  update(store, items, catNames, { dropPct = 3, alertNew = true } = {}) {
     const now = Date.now(), alerts = [];
     for (const item of items) {
       const rec = this.items[item.key];
       if (!rec) {
         this.items[item.key] = { first: now, last: now, hist: [item.price] };
-        if (this.isSeeded(store, item.cat)) alerts.push({ why: 'NEW', item });
+        if (alertNew && this.isSeeded(store, item.cat)) alerts.push({ why: 'NEW', item });
       } else {
         const prev = rec.hist.at(-1);
         rec.last = now;
@@ -37,6 +37,22 @@ export class State {
     }
     for (const cat of catNames) this.seeded[`${store}:${cat}`] = true;
     return alerts;
+  }
+
+  // 移除無效商品紀錄（例如複驗後確認為競標、多規格或已結束）
+  remove(key) {
+    if (!this.items[key]) return false;
+    delete this.items[key];
+    return true;
+  }
+
+  // 更正最後一筆誤報價；若與前一筆相同則直接退回前價，避免留下假波動紀錄
+  replaceLastPrice(key, price) {
+    const rec = this.items[key];
+    if (!rec?.hist?.length) return false;
+    if (rec.hist.length > 1 && rec.hist.at(-2) === price) rec.hist.pop();
+    else rec.hist[rec.hist.length - 1] = price;
+    return true;
   }
 
   // 撿漏只通知一次；之後要比通知時再便宜 dropPct 以上才會再通知

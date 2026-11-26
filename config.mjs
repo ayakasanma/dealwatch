@@ -58,6 +58,8 @@ export default {
     minFeedbackPct: 98,   // 賣家好評率至少幾 %
     minFeedbackCount: 20, // 賣家評價數至少幾筆（新帳號低價多半是詐騙）
     usOnly: true,         // 只看美國境內出貨
+    alertNew: false,      // eBay 新上架頻繁，預設不提醒／推播「上新」，符合撿漏標準仍會通知
+    dropPct: 15,          // eBay 價格比上次降這麼多 % 以上才算「大降價」並通知
     // 哪些分類的 eBay 商品可以算撿漏。整機預設不算：多半是賣家自己組的機器，同一個賣家一次幾十台，
     // 電源、主機板看不出等級，零件估值偏高，會把真正的撿漏洗掉。要看就把 'desktop' 加回來
     stealCats: ['laptop', 'cpu', 'gpu', 'ram'],
@@ -102,14 +104,21 @@ export default {
     // 被炒高的零件（市價比 MSRP 高一成以上）可以接受比 MSRP 貴多少還算撿漏。0.25 = MSRP 的 1.25 倍。
     // 加完溢價後仍至少要比市價低 margin。個別零件想另外指定就用下面的 override。
     msrpPremium: 0.25,
-    desktopMinGpu: 'RTX 5070 Ti', // 整機只有這個等級以上的顯卡才會被判成撿漏
+    desktopMinGpu: 'RX 9070 XT', // 整機只有這個等級以上的顯卡才會被判成撿漏（含 RX 9070 XT / RTX 5070 Ti 以上）
     margin: 0.10,
     tooGood: 0.5,    // 低於估值一半視為假貨或標題解析錯誤，不算撿漏
     refreshHours: 6,
     // 個別零件直接指定撿漏價（不再套溢價），key 的寫法見 `node dealwatch.mjs market`。
     // 零件本身到這個價就算撿漏；整機估值裡這個零件也用這個價。
     override: {
-      'gpu:5090': 2500,
+      'gpu:5090': 3200,
+      'gpu:5080': 1500,
+      'gpu:5070 Ti': 1200,
+      'gpu:4090': 2500,
+      'gpu:4080 S': 1250,
+      'gpu:4080': 1150,
+      'gpu:RX 7900 XTX': 950,
+      'gpu:RX 9070 XT': 800,
     },
     // 估不出零件價的品項（筆電）用規則，命中任一條就算撿漏。可用欄位：
     //   store ('bb'|'wm')、cat、match（比對標題）、cpu / gpu（比對表格的 cpu / gpu 欄）、minGpu（效能至少這個等級）、
@@ -204,19 +213,19 @@ export default {
     gpu: {
       queries: {
         bestbuy: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt', 'graphics card'],
-        walmart: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        walmart: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt'],
         woot: ['rtx', 'geforce', 'radeon'],
-        newegg: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
-        ebay: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
-        microcenter: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
-        slickdeals: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090'],
+        newegg: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt'],
+        ebay: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt'],
+        microcenter: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt'],
+        slickdeals: ['rtx 5070 ti', 'rtx 5080', 'rtx 5090', 'rx 9070 xt'],
         reddit: ['gpu', 'rtx', 'radeon', 'rx 9070'],
       },
       ebayCategory: 27386,
       type: /graphics card|video card|gpu/i,
       show: ['gpu'],
       exclude: /laptop|notebook|gaming pc|desktop pc|water block|backplate|bracket|riser/i,
-      minGpu: 'RTX 5070 Ti',
+      minGpu: 'RX 9070 XT',
       minPrice: 400,
     },
 

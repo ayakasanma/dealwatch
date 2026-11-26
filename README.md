@@ -11,7 +11,7 @@
 node dealwatch.mjs scan
 ```
 
-掃一次 `config.stores` 裡的每一家店並列表（預設全部六個來源）。第一次執行只會建立基準；之後每次執行會在表格下方列出「上新」與「降價」。
+掃一次 `config.stores` 裡的每一家店並列表（預設全部八個來源）。第一次執行只會建立基準；之後每次執行會在表格下方列出「上新」與「降價」。
 
 ```bash
 node dealwatch.mjs watch
@@ -55,10 +55,10 @@ node dealwatch.mjs ui
 
 全部在 [config.mjs](config.mjs)：
 
-- `stores`：要監控哪些來源，預設 `['bb', 'wm', 'wt', 'ne', 'sd', 'rd']`。
+- `stores`：要監控哪些來源，預設 `['bb', 'wm', 'wt', 'ne', 'eb', 'mc', 'sd', 'rd']`。
 - `zip`：填你的郵遞區號。Best Buy 的 open-box 多半只能門市取貨，填了才會以你附近的庫存為準。
-- `categories`：每個分類的搜尋關鍵字（`queries.bestbuy` / `walmart` / `woot` / `newegg` / `slickdeals` / `reddit`，各來源分開設）與過濾條件。預設是
-  筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RTX 5070 Ti 以上）、
+- `categories`：每個分類的搜尋關鍵字（`queries.bestbuy` / `walmart` / `woot` / `newegg` / `ebay` / `microcenter` / `slickdeals` / `reddit`，各來源分開設）與過濾條件。預設是
+  筆電（RTX 4050 以上）、整機（RTX 4060 以上）、CPU（9800X3D 等清單）、顯卡（RX 9070 XT / RTX 5070 Ti 以上）、
   記憶體（DDR5、單條 16GB 以上）。
 - `intervalSec`：watch 的輪詢間隔。
 - `watchlist`：指定商品，不依賴搜尋排名，每輪直接查價格。Walmart 同時讀取商品頁的庫存欄位；Best Buy 自營的全新 / 整新品會查庫存，open-box 與第三方賣家的庫存見「已知限制」。
@@ -113,11 +113,11 @@ node dealwatch.mjs notify-test
 
 - **市價明顯高於 MSRP 的零件**（目前的顯卡、記憶體）：售價 ≤ MSRP ×（1 + `msrpPremium`）就算，預設溢價 25%。
   這種行情下比 MSRP 貴一點仍然是便宜。例如 5080 是 $999 × 1.25 = $1,249、DDR5 32GB 是 $128。
-  個別零件可以在 `steals.override` 直接指定撿漏價，目前 5090 設為 $2,500。
+  個別零件可以在 `steals.override` 直接指定撿漏價（目前高階顯卡已依市況設定於 `config.mjs` 的 `steals.override`）。
 - **市價本來就在 MSRP 附近或更低的零件**（多數 CPU）：要比其他賣家的最低價再便宜 10% 以上，
   而且只有新上架或剛降價的才算——一直都是最低價的那個賣家不算。
 - **整機**：售價 ≤ CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價，再加 `buildAllowance`（主機板、電源、機殼、散熱、
-  Windows，預設 $600）。只看顯卡在 `desktopMinGpu`（預設 RTX 5070 Ti）以上的機器，
+  Windows，預設 $600）。只看顯卡在 `desktopMinGpu`（預設 RX 9070 XT / RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
 - **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前四條：
   ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
@@ -146,10 +146,11 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
   每輪載入完、閒置 30 秒後分頁會換成空白頁，免得網站的腳本在兩輪之間一直吃 CPU；遇到人機驗證時則保留頁面等你處理。
 - **Woot**：呼叫官網前端用的 GraphQL 端點，依上架時間由新到舊查關鍵字。端點需要的公開金鑰每次從 Woot 首頁讀取，不寫在程式裡。
   Woot 每件商品是限時特賣，多半整新品，賣完就下架。
-- **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新。
+- **Newegg**：抓搜尋頁內嵌的 JSON，含售價、庫存、賣家、是否 open-box / 整新；被 Cloudflare 擋時會改用專用 Chrome 載入，並於記憶體記憶 6 小時。
 - **eBay**：直接請求一律被擋，只能用同一個 Chrome 另開分頁載入搜尋頁（最新上架、只看直購、限定 eBay 分類與美國境內出貨）。
-  價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手。
+  價格含運費；只留 `ebay.minFeedbackPct` / `minFeedbackCount` 以上的賣家（預設 98%、20 筆評價），預設不看二手，並排除競標與多規格價格區間商品。
   連續載入太快會回錯誤頁，所以每次載入至少隔 10 秒、10 分鐘一輪。
+  為避免新上架與小幅調價洗版，eBay 預設關閉「上新」通知（`ebay.alertNew: false`），且需大降價（`ebay.dropPct`，預設 15%）或符合撿漏標準才會通知，並在通知前再開商品頁二次確認非競標／多規格低價且仍在售。
   eBay 的整機多半是賣家自己組的，零件估值不準，預設不算撿漏（只列在表格裡）；要算就在 `ebay.stealCats` 加回 `'desktop'`。
 - **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
 - **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
@@ -157,7 +158,7 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
   「開商品頁」會開商品網址（Slickdeals 是討論串）。Reddit 不登入時限流很嚴，一輪只發一個請求。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），
   加完再開結帳頁。Walmart 用 `affil.walmart.com/cart/buynow?offers=<offerId>`，鎖定你在表格看到的那個賣家，
-  加完直接往結帳走（沒登入時會停在購物車頁）。
+  加完直接往結帳走（沒登入時會停在購物車頁）。Newegg 自營商品亦提供 `AddtoCart.aspx` 加入購物車連結（僅開加入頁，不自動導向結帳）。
   連結在你的預設瀏覽器開啟，所以會進到你已登入的帳號。**腳本只開到結帳頁，不會送出訂單。**
 - 狀態存在 `data/state.json`，提醒紀錄在 `data/alerts.jsonl`。刪掉 `data/` 就會重新建立基準。
 

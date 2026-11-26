@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dealwatch — Best Buy open-box/refurbished 與 Walmart 上新監控。用法見 README.md 或 `node dealwatch.mjs help`
+// dealwatch — 多通路硬體撿漏與價格監控。用法見 README.md 或 `node dealwatch.mjs help`
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -74,7 +74,7 @@ const HELP = `用法: node dealwatch.mjs <指令> [選項]
   ingest <檔案.html>  解析瀏覽器另存的 Walmart 搜尋頁，一樣做過濾 / 比對 / 提醒
 
 選項:
-  --store bb,wt       只跑指定的店（bb Best Buy、wm Walmart、wt Woot、ne Newegg、sd Slickdeals、rd r/buildapcsales）
+  --store bb,wt       只跑指定的店（bb Best Buy、wm Walmart、wt Woot、ne Newegg、eb eBay、mc Micro Center、sd Slickdeals、rd r/buildapcsales）
   --cat laptop,gpu    只跑指定分類（${Object.keys(config.categories).join(', ')}）
   --steals            只顯示符合撿漏標準（config.steals）的
   --min-off 15        只顯示折扣 >= 15% 的
@@ -118,8 +118,8 @@ walmart.configure({ via: walmartVia, browser: wmBrowser, startInBrowser: (state.
 newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
 // eBay / Micro Center 直接請求一律被擋，只能用瀏覽器；在同一個瀏覽器另開一個分頁，不跟 Walmart / Newegg 搶同一個分頁排隊
 const shopBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl, parent: wmBrowser });
-ebay.configure({ browser: shopBrowser, ...config.ebay });
-microcenter.configure({ browser: shopBrowser, ...config.microcenter });
+ebay.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.ebay });
+microcenter.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.microcenter });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -133,14 +133,24 @@ function keep(item) {
   return true;
 }
 
-// eBay 賣家信用與商品狀況。好評率或評價數不明的一律不要
+// eBay 賣家信用、商品狀況，並排除競標／多規格商品
 function ebayOk(item) {
+  if (item.auction || item.multiVariation) return false;
   const e = config.ebay ?? {};
   const condition = item.cond === 'Used' ? 'Used' : { ob: 'Open-Box', refurb: 'Refurbished', new: 'New' }[item.kind];
   if (e.conditions && !e.conditions.includes(condition)) return false;
   if (e.minFeedbackPct != null && !(item.feedbackPct >= e.minFeedbackPct)) return false;
   if (e.minFeedbackCount != null && !(item.feedbackCount >= e.minFeedbackCount)) return false;
   return true;
+}
+
+function alertOpts(store) {
+  const base = config.alert ?? {};
+  const over = store === 'eb' ? config.ebay : null;
+  return {
+    dropPct: over?.dropPct ?? base.dropPct ?? 3,
+    alertNew: over?.alertNew ?? base.alertNew ?? true,
+  };
 }
 
 // 先試關鍵字所屬的分類，不合再試其他分類（例如搜 9800x3d 也會出現整機）
@@ -307,34 +317,55 @@ function ownMarketPrice(store, item) {
   return rec && rec.told == null ? rec.hist.at(-1) : undefined;
 }
 
+function evaluateItemDeal(store, item, priceOf) {
+  item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
+  // eBay 的整機多半是賣家自己組的，電源、主機板看不出等級，零件估值不準；只在 ebay.stealCats 的分類算撿漏
+  const ebayCats = config.ebay?.stealCats;
+  if (item.store === 'eb' && item.deal?.steal && ebayCats && !ebayCats.includes(item.cat)) {
+    item.deal = { ...item.deal, steal: false, reason: `eBay ${item.cat} 不算撿漏（ebay.stealCats）｜${item.deal.reason}` };
+  }
+  // 指定商品有設到價通知的話，到價就算撿漏
+  const target = item.watch?.maxPrice;
+  if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
+  if (knownSoldOut(item)) markSoldOut(item);
+}
+
 async function judgeItems(store, items) {
   lastItems[store] = items;
   const all = Object.values(lastItems).flat();
   const market = await loadMarket();
   const priceOf = makePricer(market, all, config.steals.override);
-  for (const item of items) {
-    item.deal = judge(item, priceOf, config.steals, ownMarketPrice(store, item));
-    // eBay 的整機多半是賣家自己組的，電源、主機板看不出等級，零件估值不準；只在 ebay.stealCats 的分類算撿漏
-    const ebayCats = config.ebay?.stealCats;
-    if (item.store === 'eb' && item.deal?.steal && ebayCats && !ebayCats.includes(item.cat)) {
-      item.deal = { ...item.deal, steal: false, reason: `eBay ${item.cat} 不算撿漏（ebay.stealCats）｜${item.deal.reason}` };
-    }
-    // 指定商品有設到價通知的話，到價就算撿漏
-    const target = item.watch?.maxPrice;
-    if (target && item.price <= target) item.deal = { ...item.deal, steal: true, reason: `指定商品到價：售價 ${item.price}，你設定 ${target} 以下通知` };
-    if (knownSoldOut(item)) markSoldOut(item);
-  }
+  for (const item of items) evaluateItemDeal(store, item, priceOf);
   // 判斷完才把這一輪的行情併進市價表。撿漏本身不併，它還在的期間才會一直維持 ★
   if (market && foldMarket(market, items.filter(i => !i.deal?.steal))) state.writeJson('market.json', market);
 }
 
 // 還沒通知過的撿漏
-const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, config.alert.dropPct));
+const pendingSteals = items => items.filter(i => i.deal?.steal && state.needsNotify(i, alertOpts(i.store).dropPct));
 
 // 庫存查詢結果記 30 分鐘。key -> { t, ok }，ok 為 false 表示確定售完
 const stockCache = new Map();
 const STOCK_TTL = 30 * 60e3;
 const knownSoldOut = item => { const hit = stockCache.get(item.key); return !!hit && hit.ok === false && Date.now() - hit.t < STOCK_TTL; };
+
+// eBay 通知前商品頁二次驗證結果快取 30 分鐘，避免把競標、多規格最低價或已售完誤當成撿漏／降價
+const ebayVerifyCache = new Map();
+async function verifyEbay(item) {
+  const hit = ebayVerifyCache.get(item.key);
+  if (hit && Date.now() - hit.t < STOCK_TTL) return hit;
+  if (!ebay.hasBrowser() || shopBrowser.hold) return null;
+  try {
+    const [live] = await ebay.product(item.id);
+    const res = !live || !live.inStock ? { t: Date.now(), ok: false, reason: '已結束或售完' }
+      : live.auction ? { t: Date.now(), ok: false, reason: '競標商品' }
+      : live.multiVariation ? { t: Date.now(), ok: false, reason: '多規格商品' }
+      : { t: Date.now(), ok: true, price: live.price };
+    ebayVerifyCache.set(item.key, res);
+    return res;
+  } catch {
+    return null;
+  }
+}
 
 // Best Buy 自營的全新 / 整新品直接查庫存，售完的標成沒貨。
 // open-box（多半限門市取貨）和第三方賣家的商品這個方法查不到，維持原樣（庫存待確認）。
@@ -347,19 +378,39 @@ async function markStock(items) {
   }));
 }
 
-// 推播前的最後一關：Best Buy 第三方賣家的商品庫存只能開商品頁看，所以只對即將通知的撿漏做。
-// 確定售完的不通知；沒有瀏覽器可用、判斷不出來的照樣通知，但註明庫存未驗證。
-async function confirmSteals(items, candidates = pendingSteals(items)) {
+// 推播前的最後一關：Best Buy 第三方賣家確認庫存；eBay 複驗商品頁排除競標、多規格低價與已售完。
+async function confirmSteals(items, customCandidates) {
+  const checkNotify = customCandidates === undefined;
+  const candidates = customCandidates ?? pendingSteals(items);
   const confirmed = [];
+  let priceOf = null, dirty = false;
   for (const item of candidates) {
     if (item.store === 'bb' && item.seller !== 'BestBuy') {
       const ok = await bestbuy.pageStock(wmBrowser, item.url);
       stockCache.set(item.key, { t: Date.now(), ok });
       if (ok === false) { markSoldOut(item); continue; }
       if (ok === null) item.deal = { ...item.deal, reason: `${item.deal.reason}（第三方賣家，庫存未驗證）` };
+    } else if (item.store === 'eb') {
+      const v = await verifyEbay(item);
+      if (v && !v.ok) {
+        if (v.reason === '已結束或售完') item.soldOut = true;
+        item.deal = { ...item.deal, steal: false, reason: `${v.reason}｜${item.deal.reason}` };
+        if (state.remove(item.key)) dirty = true;
+        continue;
+      }
+      if (v?.ok && v.price > item.price) {
+        item.price = v.price;
+        item.off = offPct(item);
+        if (state.replaceLastPrice(item.key, v.price)) dirty = true;
+        item.hist = state.items[item.key]?.hist;
+        priceOf ??= makePricer(await loadMarket(), Object.values(lastItems).flat(), config.steals.override);
+        evaluateItemDeal('eb', item, priceOf);
+        if (!item.deal?.steal || (checkNotify && !state.needsNotify(item, alertOpts('eb').dropPct))) continue;
+      }
     }
     confirmed.push(item);
   }
+  if (dirty) state.save();
   return confirmed;
 }
 
@@ -387,7 +438,7 @@ function summary(r) {
 async function cmdScan() {
   const results = await Promise.all(stores.map(scanStore));
   // 被擋或整輪失敗的店不更新狀態，避免把半套結果當基準
-  const alerts = results.filter(r => !failed(r)).flatMap(r => state.update(r.store, r.items, catNames, config.alert));
+  const alerts = results.filter(r => !failed(r)).flatMap(r => state.update(r.store, r.items, catNames, alertOpts(r.store)));
   state.save();
   const all = results.flatMap(r => r.items);
   // 單次掃描不推播，但撿漏一樣先確認第三方賣家的庫存，免得列出已售完的
@@ -515,7 +566,7 @@ async function cmdCart(args) {
     if (!item) { console.error('找不到這個編號。先跑 scan 或 q，再用表格最左邊的 # 編號。'); process.exit(1); }
   }
   if (!item.cartUrl) {
-    console.log(`這件沒有加入購物車連結（Best Buy 第三方賣家、Woot、Newegg 第三方、社群回報的 deal），改開商品頁: ${item.name}\n${item.url}`);
+    console.log(`這件沒有加入購物車連結（Best Buy 第三方賣家、Woot、Newegg 第三方、eBay、Micro Center、社群回報的 deal），改開商品頁: ${item.name}\n${item.url}`);
     if (!flags.dry) openUrl(item.url, config.cart.browser);
     return;
   }
@@ -539,7 +590,27 @@ async function cmdWatch({ ui = false } = {}) {
     const steals = (await confirmSteals(r.items)).map(item => ({ why: 'STEAL', item }));
     const stealKeys = new Set(steals.map(s => s.item.key));
     // 撿漏用自己的格式印（含估值說明），同一件就不再重複印上新 / 降價
-    const plain = alerts.filter(a => !stealKeys.has(a.item.key));
+    const plain = [];
+    let dirty = false;
+    for (const a of alerts) {
+      if (stealKeys.has(a.item.key)) continue;
+      if (a.item.store === 'eb' && (a.why === 'DROP' || ebayVerifyCache.has(a.item.key))) {
+        const v = a.why === 'DROP' ? await verifyEbay(a.item) : ebayVerifyCache.get(a.item.key);
+        if (v && !v.ok) {
+          if (state.remove(a.item.key)) dirty = true;
+          continue;
+        }
+        if (v?.ok && v.price > a.item.price) {
+          a.item.price = v.price;
+          a.item.off = offPct(a.item);
+          if (state.replaceLastPrice(a.item.key, v.price)) dirty = true;
+          a.item.hist = state.items[a.item.key]?.hist;
+          if (a.why === 'DROP' && v.price > a.prev * (1 - alertOpts('eb').dropPct / 100)) continue;
+        }
+      }
+      plain.push(a);
+    }
+    if (dirty) state.save();
     for (const a of [...steals, ...plain]) {
       recent.push({ t: Date.now(), ...a });
       console.log(`${c.dim(time())} ${c.bold('#' + recent.length)} ${alertLine(a)}\n   ${c.dim(a.item.cartUrl ?? a.item.url)}`);
@@ -577,7 +648,7 @@ async function cmdWatch({ ui = false } = {}) {
       } else {
         backoff = 1;
         const firstRun = !catNames.every(n => state.isSeeded(store, n));
-        const alerts = state.update(store, r.items, catNames, config.alert);
+        const alerts = state.update(store, r.items, catNames, alertOpts(store));
         state.save();
         saveWalmartHint();
         console.log(c.dim(`${time()} ${summary(r)}，★ 撿漏 ${r.items.filter(i => i.deal?.steal).length} 筆${firstRun ? '（首次執行，已建立基準）' : alerts.length ? '' : '，無變動'}`));

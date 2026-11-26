@@ -86,7 +86,7 @@ function typeOf(title) {
   return '';
 }
 
-function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbackCount: count, itemPrice, shipping, ref, bestOffer, listedAt, inStock }) {
+function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbackCount: count, itemPrice, shipping, ref, bestOffer, listedAt, inStock, auction, multiVariation }) {
   const type = CATEGORY_TYPES[category] ?? typeOf(name);
   return {
     store: 'eb',
@@ -108,6 +108,8 @@ function makeItem({ id, name, category, kind, cond, seller, feedbackPct, feedbac
     listedAt,
     url: `${BASE}/itm/${id}`,
     cartUrl: null,
+    ...(auction && { auction: true }),
+    ...(multiVariation && { multiVariation: true }),
   };
 }
 
@@ -126,6 +128,8 @@ export function configure({ browser: b, conditions: c, usOnly: u, gapMs: g } = {
   if (typeof u === 'boolean') usOnly = u;
   if (Number.isFinite(g) && g >= 0) gapMs = g;
 }
+
+export const hasBrowser = () => !!browser;
 
 const titleOf = html => /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
 const isErrorPage = html => /error\s*page/i.test(titleOf(html));
@@ -214,6 +218,52 @@ export function parseSearch(html, category) {
   return { total: totalOf(html, items.length), items };
 }
 
+function extractElements(html, className) {
+  const s = String(html ?? '');
+  const openRe = new RegExp(`<(div|span)\\b([^>]*\\bclass=["'][^"']*\\b${className}\\b[^"']*["'][^>]*)>`, 'gi');
+  const out = [];
+  let m;
+  while ((m = openRe.exec(s))) {
+    if (/\/>$/.test(m[0])) continue;
+    const tag = m[1].toLowerCase();
+    const contentStart = m.index + m[0].length;
+    const tagRe = new RegExp(`<(/?)${tag}\\b[^>]*>`, 'gi');
+    tagRe.lastIndex = contentStart;
+    let depth = 1, t;
+    while ((t = tagRe.exec(s))) {
+      if (t[1]) depth--;
+      else if (!/\/>$/.test(t[0])) depth++;
+      if (depth === 0) {
+        out.push({ open: m[0], inner: s.slice(contentStart, t.index), html: s.slice(m.index, t.index + t[0].length) });
+        openRe.lastIndex = t.index + t[0].length;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+const isPriceRange = text => /\$\s*[\d,]+(?:\.\d+)?\s*(?:to|[-–—])\s*(?:[A-Z]{1,3}\s*)?\$\s*[\d,]+(?:\.\d+)?/i.test(String(text ?? ''));
+
+function stripTitleAndFooter(block) {
+  let out = String(block ?? '');
+  for (const cls of ['s-card__title', 's-card__subtitle', 's-card__footer']) {
+    for (const el of extractElements(out, cls)) out = out.replace(el.html, ' ');
+  }
+  return textOf(out);
+}
+
+function isAuctionCard(block, attrRows) {
+  if (/\b(?:s-card__bids|s-item__bids|s-item__time-left|s-card__time-left)\b/i.test(block)) return true;
+  const rows = [...attrRows.map(r => textOf(r.inner)), stripTitleAndFooter(block)];
+  return rows.some(t =>
+    /\b\d+\s*bids?\b/i.test(t)
+    || /\bor\s+buy\s+it\s+now\b/i.test(t)
+    || /\b(?:starting|current)\s+bid\b|\bplace\s+bid\b/i.test(t)
+    || /^\s*auction\s*$/i.test(t)
+    || /\btime\s+left\b|\b\d+\s*[dhms]\b(?:\s+\d+\s*[hms]\b)*\s+left\b/i.test(t));
+}
+
 function cardItem(block, id, category) {
   // 假卡片
   if (/\/itm\/123456(?:[?"&]|$)/.test(block)) return null;
@@ -224,11 +274,21 @@ function cardItem(block, id, category) {
     .replace(/<span[^>]*>\s*Opens in a new window or tab\s*<\/span>/gi, ' '));
   if (!name || /^shop on ebay$/i.test(name)) return null;
 
-  const priceText = textOf(/class="[^"]*\bs-card__price\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(block)?.[1] ?? '');
-  // 多規格價格區間（$100.00 to $200.00）整筆略過，免得用最低價誤判
-  if (/\bto\b/i.test(priceText) && /\$[\d,]/.test(priceText)) return null;
-  const itemPrice = money(priceText);
-  if (itemPrice == null) return null;
+  const attrRows = extractElements(block, 's-card__attribute-row');
+  if (isAuctionCard(block, attrRows)) return null;
+  if (/href="[^"]*[?&]var=\d+/i.test(block)) return null;
+  if (attrRows.some(r => /\b(?:see\s+options|more\s+options|choose\s+(?:options|style|size|color|model))\b/i.test(textOf(r.inner)))) return null;
+  if (attrRows.some(r => /\bs-card__price\b/i.test(r.html) && isPriceRange(textOf(r.inner)))) return null;
+
+  const priceEls = extractElements(block, 's-card__price');
+  const activePriceEls = priceEls.filter(el =>
+    !/strikethrough|strike/i.test(el.open)
+    && !/^(?:was|previous(?:\s+price)?|list(?:\s+price)?)\b/i.test(textOf(el.inner)));
+  if (activePriceEls.some(el => isPriceRange(textOf(el.inner)))) return null;
+  const activePrices = activePriceEls.map(el => money(textOf(el.inner))).filter(p => p != null);
+  // 多規格拆成多個 span 或競標＋一口價雙價格卡片：金額不只一筆時整筆略過
+  if (activePrices.length !== 1) return null;
+  const itemPrice = activePrices[0];
 
   const flat = textOf(block);
   // s-card__subtitle-row 是外層容器，不能一起抓
@@ -291,7 +351,8 @@ function productData(html) {
   return null;
 }
 
-const visibleText = html => textOf(String(html).replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' '));
+const stripScriptStyle = html => String(html ?? '').replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ');
+const visibleText = html => textOf(stripScriptStyle(html));
 
 function visibleCondition(html) {
   return textOf(/class="x-item-condition-text"[\s\S]{0,600}?<span class="ux-textspans">([^<]+)/i.exec(html)?.[1] ?? '')
@@ -311,14 +372,26 @@ export function parseItem(html, id) {
   if (!id) return [];
   const data = productData(html);
   const offer = (Array.isArray(data?.offers) ? data.offers[0] : data?.offers) ?? {};
-  const visible = visibleText(html);
+  const bodyHtml = stripScriptStyle(html);
+  const visible = textOf(bodyHtml);
 
   const name = textOf(data?.name ?? '') || textOf(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ?? '')
     || textOf(titleOf(html)).replace(/\s*\|\s*eBay\s*$/i, '');
   const itemPrice = money(offer.price)
-    ?? money(/class="x-price-primary"[\s\S]{0,400}?US\s*\$([\d,]+(?:\.\d+)?)/i.exec(html)?.[1])
-    ?? money(/US\s*\$([\d,]+(?:\.\d+)?)/.exec(visible)?.[1]);
+    ?? money(/class="[^"]*\bx-price-primary\b[^"]*"[\s\S]{0,400}?US\s*\$([\d,]+(?:\.\d+)?)/i.exec(bodyHtml)?.[1])
+    ?? money(/US\s*\$([\d,]+(?:\.\d+)?)/.exec(visible)?.[1])
+    ?? money(offer.lowPrice);
   if (!name || itemPrice == null) return [];
+
+  const priceSection = extractElements(bodyHtml, 'x-price-primary').map(e => textOf(e.inner)).join(' ');
+  const multiVariation = /\b(?:data-testid|class)=["'][^"']*\b(?:x-msku(?:-evo)?|msku-sel)\b/i.test(bodyHtml)
+    || (Array.isArray(data?.offers) && data.offers.length > 1)
+    || offer['@type'] === 'AggregateOffer'
+    || Number(offer.offerCount) > 1
+    || (offer.lowPrice != null && offer.highPrice != null && +offer.lowPrice !== +offer.highPrice)
+    || isPriceRange(priceSection);
+  const auction = /\b(?:data-testid|class|id)=["'][^"']*\b(?:x-bid-price|x-bid-action|x-bid-count|bidBtn(?:_btn)?|prcIsum_bidPrice)\b/i.test(bodyHtml)
+    || /\b(?:place\s+bid|starting\s+bid|current\s+bid)\b/i.test(visible.slice(0, 8000));
 
   const condition = conditionOf(visibleCondition(html)) ?? schemaCondition(offer.itemCondition) ?? { kind: 'new', cond: 'New' };
 
@@ -359,6 +432,8 @@ export function parseItem(html, id) {
     bestOffer: /or Best Offer/i.test(visible.slice(0, 8000)),
     listedAt: data?.offers?.availabilityStarts ?? undefined,
     inStock,
+    auction,
+    multiVariation,
   })];
 }
 
