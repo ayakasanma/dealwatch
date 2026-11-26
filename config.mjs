@@ -191,7 +191,6 @@ export default {
   // 每一項可以是商品網址，或 { store: 'bb' | 'wm', id: 'SKU 或 item id' }。
   // 照一般的撿漏標準判斷；另外加 maxPrice 的話，到那個價就一定通知，例如 { url: '...', maxPrice: 2400 }
   watchlist: [
-    'https://www.walmart.com/ip/CyberPowerPC-Gaming-PC-AMD-Ryzen-7-9800X3D-NVIDIA-GeForce-RTX-5080-16GB-32GB-DDR5-1TB-SSD-SLC8500WST/20707507998',
     { store: 'bb', id: '6679866' }, // ASUS ROG Zephyrus G14 14" 3K OLED / Core Ultra 9 386H / RTX 5070 Ti / 32GB / 1TB
   ],
 
