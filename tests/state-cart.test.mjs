@@ -210,3 +210,29 @@ test('parseMobo 與套組（bundle）分類及估值：以 Micro Center 5007482 
   assert.equal(kit2x16.sum, 340 + 120 + 280);
   assert.equal(kit2x16.steal, true);
 });
+
+test('筆電撿漏規則支援 minOffPct、自營賣家限制與 RTX 4080 / 4090 / 5070 門檻', () => {
+  const priceOf = makePricer({ prices: {} }, [], config.steals.override);
+  const checkLaptop = ({ name, price, ref, kind = 'ob', cond = 'OB Fair', seller = 'BestBuy' }) => {
+    const item = { store: 'bb', key: `bb:lt:${name}:${price}:${kind}:${seller}`, cat: 'laptop', kind, cond, seller, type: 'Laptop Computer', name, price, ref, off: ref > price ? Math.round((1 - price / ref) * 100) : 0 };
+    item.specs = evaluate(config.categories.laptop, item);
+    return judge(item, priceOf, config.steals);
+  };
+
+  assert.equal(checkLaptop({ name: 'ASUS ROG Strix 16 RTX 4080 Gaming Laptop', price: 1299 })?.steal, true);
+  assert.equal(checkLaptop({ name: 'ASUS ROG Strix 16 RTX 4090 Gaming Laptop', price: 1699 })?.steal, true);
+  assert.equal(checkLaptop({ name: 'Lenovo Legion 5 RTX 5070 Gaming Laptop', price: 1049 })?.steal, true);
+
+  // 自營 Open-Box RTX 5070 折 38% 且 <= $2200 -> 命中 minOffPct 規則
+  assert.equal(checkLaptop({ name: 'Acer Predator Triton 14.5 OLED RTX 5070 Gaming Laptop', price: 1399, ref: 2299, kind: 'ob' })?.steal, true);
+  // 3P 賣家灌水原價（例如 RTX 5070 標原價 $3099 賣 $1983）-> 不命中
+  assert.equal(checkLaptop({ name: 'Acer Predator Triton 14.5 OLED RTX 5070 Gaming Laptop', price: 1983.48, ref: 3099.99, kind: 'refurb', cond: 'Refurb Excellent', seller: '3P賣家' }), null);
+  // 折扣未達 35%（20% off）-> 不命中
+  assert.equal(checkLaptop({ name: 'Acer Predator Triton 14.5 OLED RTX 5070 Gaming Laptop', price: 1839, ref: 2299, kind: 'ob' }), null);
+  // 超過 $2200 上限 -> 不命中（避免老機高定價誤報）
+  assert.equal(checkLaptop({ name: 'GIGABYTE AERO 16 RTX 5070 Gaming Laptop', price: 2400, ref: 4000, kind: 'ob' }), null);
+  // 顯卡低於 RTX 5070（例如 RTX 5050）-> 不命中
+  assert.equal(checkLaptop({ name: 'LG gram Pro Max RTX 5050 Gaming Laptop', price: 1338, ref: 2199, kind: 'ob' }), null);
+  // 全新品不適用 Open-Box / 整新折扣規則
+  assert.equal(checkLaptop({ name: 'Acer Predator Triton 14.5 OLED RTX 5070 Gaming Laptop', price: 1399, ref: 2299, kind: 'new', cond: 'New' }), null);
+});

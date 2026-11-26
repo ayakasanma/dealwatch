@@ -171,9 +171,10 @@ function classify(item, preferred) {
   return null;
 }
 
-async function bestbuyPages(query, condition) {
+async function bestbuyPages(query, condition, { onlyOpenBox = false, sort } = {}) {
   const { pageSize: size, maxPages } = config.bestbuy;
-  const opts = { query, condition, size, zip: config.zip, sort: condition === 'New' ? 'Best-Discount' : '' };
+  const resolvedSort = sort ?? (condition === 'New' ? 'Best-Discount' : condition ? 'New-Arrivals' : '');
+  const opts = { query, condition, size, zip: config.zip, sort: resolvedSort, onlyOpenBox };
   const first = await bestbuy.search(opts);
   const pages = Math.min(maxPages, Math.ceil(first.total / size));
   const more = await Promise.all(Array.from({ length: Math.max(0, pages - 1) }, (_, i) => bestbuy.search({ ...opts, page: i + 2 })));
@@ -212,8 +213,15 @@ async function scanStore(store) {
   const jobs = [];
   for (const [catName, cat] of cats) {
     for (const query of cat.queries?.[STORE_META[store].queries] ?? []) {
-      if (store === 'bb') for (const condition of cat.bestbuyConditions ?? config.bestbuy.conditions) jobs.push({ catName, run: () => bestbuyPages(query, condition) });
-      else jobs.push({ catName, run: () => storeSearch(store, query, cat) });
+      if (store === 'bb') {
+        const conds = cat.bestbuyConditions ?? config.bestbuy.conditions;
+        for (const condition of conds) jobs.push({ catName, run: () => bestbuyPages(query, condition) });
+        // Best Buy 的 condition_facet='Open-Box' 會漏掉部分 Good/Fair 或剛上架的 Open-Box；
+        // 對只掃 Open-Box/Refurb 的分類補跑一輪不帶 condition_facet 的搜尋，直接從 buyingOptions 撈漏網 Open-Box
+        if (conds.includes('Open-Box') && !conds.includes('New')) {
+          jobs.push({ catName, run: () => bestbuyPages(query, null, { onlyOpenBox: true, sort: '' }) });
+        }
+      } else jobs.push({ catName, run: () => storeSearch(store, query, cat) });
     }
   }
   const settled = await Promise.allSettled(jobs.map(j => j.run()));

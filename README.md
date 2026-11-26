@@ -119,11 +119,7 @@ node dealwatch.mjs notify-test
 - **整機**：售價需低於「CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價 + `buildAllowance`（主機板、電源、機殼、散熱、Windows，預設 $350）」再減 `desktopMargin`（預設 6%）；若為整新品或 open-box，估值會再套用 `desktopUsedDiscount`（預設折 10%）。只看顯卡在 `desktopMinGpu`（預設 RX 9070 XT / RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
 - **套組（`bundle`）**：CPU + 主機板（可選含記憶體 / SSD），以「CPU 撿漏價 + 主機板晶片組參考價（`msrp.mobo`）+ 記憶體 / SSD 撿漏價」加總後再減 `bundleMargin`（預設 5%）；非全新品同樣套用 `desktopUsedDiscount`（預設折 10%）。
-- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前四條：
-  ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
-  任何 RTX 5070 Ti 筆電低於 $1450、
-  Best Buy 的 5080 / 5090 筆電低於 $2000、ROG Zephyrus 5070 Ti 以上低於 $2000。
-  規則可以用標題、cpu、gpu、記憶體、成色（open-box / 整新 / 全新）、店家、價格上限來組合。
+- **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。支援標題、cpu、gpu、`minGpu`、記憶體、`minOffPct`（相對原價折扣 %）、成色（open-box / 整新 / 全新）、店家、價格上限等組合；內建涵蓋 Zephyrus G14 / 5070 Ti / 5080 / 5090 / 4080 / 4090 / 5070，以及 Open-Box / 整新 RTX 5070 等級以上折 35% 以上（$2200 內）。
 - 售價低於估值一半（`tooGood`）視為假貨或標題解析錯誤，不算撿漏。
 
 記憶體和 SSD 沒有官方 MSRP，`msrp.mjs` 裡用的是 2025 年缺貨前的常見零售價。

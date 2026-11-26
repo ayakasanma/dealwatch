@@ -34,7 +34,8 @@ async function gql(query, variables, httpOptions) {
 }
 
 // condition: 'Open-Box' | 'Refurbished' | 'New' | null(不限)
-export async function search({ query, condition = null, page = 1, size = 100, sort = '', zip = '' }, httpOptions) {
+// onlyOpenBox: true 時不帶 condition_facet，直接從一般搜尋的 buyingOptions 抽出 Open-Box（補抓被 facet 漏掉的商品）
+export async function search({ query, condition = null, page = 1, size = 100, sort = '', zip = '', onlyOpenBox = false }, httpOptions) {
   const json = await gql(SEARCH_QUERY, {
     input: { site: 'WWW', queryType: 'SEARCH', query },
     pagination: { pageNumber: page, offset: size },
@@ -58,7 +59,7 @@ export async function search({ query, condition = null, page = 1, size = 100, so
     throw new RequestError('Best Buy 回應缺少 data.search.documents', 'format');
   }
   if (!Array.isArray(result.documents)) throw new RequestError('Best Buy documents 格式不符', 'format');
-  return { total: result.numFound ?? 0, items: result.documents.flatMap(d => normalize(d.product, condition)) };
+  return { total: result.numFound ?? 0, items: result.documents.flatMap(d => normalize(d.product, onlyOpenBox ? 'Open-Box' : condition)) };
 }
 
 // 直接用 SKU 查單一商品。回傳它目前所有買得到的形式：本身（全新或整新），以及有的話 open-box
@@ -89,13 +90,17 @@ function normalize(p, condition) {
       .sort((a, b) => a.price - b.price);
     if (!offers.length) return [];
     const best = offers[0];
+    const refPrice = newPrice > best.price ? newPrice
+      : p.price?.displayableRegularPrice > best.price ? p.price.displayableRegularPrice : undefined;
     return [{
       ...base,
+      // 新品已停產下架（dotComDisplayStatus === 'inactive'）時，buyingOptions 仍可能有清倉 Open-Box 可買
+      inStock: true,
       kind: 'ob',
       key: `bb:${p.skuId}:ob`,
       cond: `OB ${best.cond}`,
       price: best.price,
-      ref: newPrice > best.price ? newPrice : p.price?.displayableRegularPrice,
+      ref: refPrice,
       offers,
       url: openBoxUrl(best.pdp ?? p.url?.pdp, best.cond),
       cartUrl: cartUrl(p.skuId, best.code),

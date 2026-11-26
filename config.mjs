@@ -14,7 +14,7 @@ export default {
   // Woot 是限時特賣，上架時間多半在美中時間午夜，2 分鐘一輪就夠。
   // r/buildapcsales 的好 deal 常常幾分鐘內賣光，但 Reddit 限流很嚴（連打兩次就 429），一輪只發一個請求、2 分鐘一輪
   // eBay / Micro Center 只能用瀏覽器載入，而且 eBay 連續載入太快會回錯誤頁，10 分鐘一輪
-  intervalSec: { bb: 60, wm: 300, wt: 120, ne: 300, eb: 600, mc: 600, sd: 180, rd: 120 },
+  intervalSec: { bb: 30, wm: 300, wt: 120, ne: 300, eb: 600, mc: 600, sd: 180, rd: 120 },
 
   ui: { port: 8787 }, // `node dealwatch.mjs ui` 的網頁介面埠號
 
@@ -158,7 +158,7 @@ export default {
     },
     // 估不出零件價的品項（筆電）用規則，命中任一條就算撿漏。可用欄位：
     //   store ('bb'|'wm')、cat、match（比對標題）、cpu / gpu（比對表格的 cpu / gpu 欄）、minGpu（效能至少這個等級）、
-    //   minRamGB、kind（'ob' open-box、'refurb' 整新、'new' 全新）、maxPrice
+    //   minRamGB、minOffPct（相對原價折扣至少幾 %）、kind（'ob' open-box、'refurb' 整新、'new' 全新）、maxPrice
     rules: [
       {
         name: 'ROG Zephyrus G14（386H / 5070 Ti / 32GB）open-box 或整新低於 $2200',
@@ -167,6 +167,13 @@ export default {
       { name: 'RTX 5070 Ti 筆電低於 $1450', cat: 'laptop', gpu: /^5070 Ti/, maxPrice: 1450 },
       { name: 'Best Buy 5080 以上筆電低於 $2000', store: 'bb', cat: 'laptop', gpu: /^50(80|90)/, maxPrice: 2000 },
       { name: 'ROG Zephyrus 5070 Ti 以上低於 $2000', cat: 'laptop', match: /zephyrus/i, gpu: /^50(70 Ti|80|90)/, maxPrice: 2000 },
+      { name: 'RTX 4090 筆電低於 $1700', cat: 'laptop', gpu: /^4090/, maxPrice: 1700 },
+      { name: 'RTX 4080 筆電低於 $1300', cat: 'laptop', gpu: /^4080/, maxPrice: 1300 },
+      { name: 'RTX 5070 筆電低於 $1050', cat: 'laptop', gpu: /^5070$/, maxPrice: 1050 },
+      {
+        name: '自營 Open-Box / 整新 RTX 5070 等級以上筆電折 35% 以上（$2200 內）',
+        cat: 'laptop', kind: ['ob', 'refurb'], seller: /^(BestBuy|Walmart\.com|Newegg|Micro Center|Woot)$/, minGpu: 'RTX 5070', minOffPct: 35, maxPrice: 2200,
+      },
     ],
   },
 
@@ -191,7 +198,7 @@ export default {
   categories: {
     laptop: {
       queries: {
-        bestbuy: ['gaming laptop', 'rtx laptop'],
+        bestbuy: ['gaming laptop', 'rtx laptop', 'zephyrus', 'rtx 4080', 'rtx 4090', 'rtx 5070'],
         walmart: ['gaming laptop rtx', 'rtx 5070 ti laptop'],
         woot: ['laptop'], // Woot 商品不多，而且關鍵字的每個字都要出現在標題裡，用寬一點的詞再靠分類條件過濾
         newegg: ['gaming laptop rtx 5070 ti', 'gaming laptop rtx 5080'],
@@ -208,7 +215,7 @@ export default {
 
     desktop: {
       queries: {
-        bestbuy: ['gaming desktop', 'rtx gaming pc'],
+        bestbuy: ['gaming desktop', 'rtx gaming pc', 'geforce desktop', 'refurbished rtx'],
         walmart: ['gaming desktop pc rtx', '9800x3d gaming pc'],
         woot: ['desktop', 'gaming pc'],
         newegg: ['gaming desktop rtx 5080', '9800x3d gaming pc'],

@@ -196,6 +196,7 @@ export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, deskt
 export function matchRule(item, rules = []) {
   for (const rule of rules) {
     if (rule.store && rule.store !== item.store) continue;
+    if (rule.seller && !rule.seller.test(item.seller ?? '')) continue;
     if (rule.cat && rule.cat !== item.cat) continue;
     if (rule.match && !rule.match.test(item.name)) continue;
     if (rule.kind && !rule.kind.includes(item.kind)) continue;
@@ -203,6 +204,10 @@ export function matchRule(item, rules = []) {
     if (rule.minRamGB && !((parseInt(item.specs.ram) || 0) >= rule.minRamGB)) continue;
     if (rule.gpu && !rule.gpu.test(item.specs.gpu)) continue;
     if (rule.minGpu && item.specs.gpuScore < gpuScore(rule.minGpu)) continue;
+    if (rule.minOffPct) {
+      const off = item.off ?? (item.ref > item.price ? Math.round((1 - item.price / item.ref) * 100) : 0);
+      if (!(off >= rule.minOffPct)) continue;
+    }
     if (rule.maxPrice && item.price > rule.maxPrice) continue;
     return rule;
   }

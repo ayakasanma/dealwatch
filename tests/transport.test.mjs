@@ -46,6 +46,61 @@ test('Best Buy 價格可查時仍明確標示庫存未知', async () => {
   assert.equal(result.items[0].stockKnown, false);
 });
 
+test('Best Buy onlyOpenBox 不帶 condition_facet 也能抽 buyingOptions，且保留停產新品的清倉 Open-Box', async () => {
+  const seenUrls = [];
+  const docActive = {
+    product: {
+      skuId: '101',
+      dotComDisplayStatus: 'active',
+      name: { short: 'Lenovo Legion 5i RTX 5060 Gaming Laptop' },
+      whatItIs: ['Laptop Computer'],
+      price: { customerPrice: 1199.99, displayableRegularPrice: 1199.99 },
+      url: { pdp: '/product/legion/sku/101' },
+      buyingOptions: [
+        { type: 'Fair', pdpUrl: '/product/legion/sku/101', product: { openBoxCondition: 0, price: { customerPrice: 950 } } },
+        { type: 'Good', pdpUrl: '/product/legion/sku/101', product: { openBoxCondition: 1, price: { customerPrice: 1020 } } },
+      ],
+    },
+  };
+  const docInactive = {
+    product: {
+      skuId: '202',
+      dotComDisplayStatus: 'inactive',
+      name: { short: 'Razer Blade 14 RTX 4070 Gaming Laptop' },
+      whatItIs: ['Laptop Computer'],
+      price: { customerPrice: null, displayableRegularPrice: 2599.99 },
+      url: { pdp: '/product/razer/sku/202' },
+      buyingOptions: [
+        { type: 'Fair', pdpUrl: '/product/razer/sku/202', product: { openBoxCondition: 0, price: { customerPrice: 1699.99 } } },
+      ],
+    },
+  };
+  const docNoOb = {
+    product: {
+      skuId: '303',
+      dotComDisplayStatus: 'active',
+      name: { short: 'New Only Laptop' },
+      price: { customerPrice: 999 },
+      url: { pdp: '/product/new/sku/303' },
+      buyingOptions: [],
+    },
+  };
+  const body = JSON.stringify({ data: { search: { numFound: 3, documents: [docActive, docInactive, docNoOb] } } });
+  const result = await bestbuy.search({ query: 'gaming laptop', condition: null, onlyOpenBox: true }, {
+    retries: 0,
+    fetchImpl: async url => { seenUrls.push(String(url)); return new Response(body); },
+  });
+  const vars = JSON.parse(new URL(seenUrls[0]).searchParams.get('variables'));
+  assert.deepEqual(vars.filter.facets, [], 'onlyOpenBox 不應帶 condition_facet');
+  assert.equal(result.items.length, 2, '應只抽出有 Open-Box buyingOptions 的兩筆');
+  assert.equal(result.items[0].key, 'bb:101:ob');
+  assert.equal(result.items[0].price, 950);
+  assert.equal(result.items[0].inStock, true);
+  assert.equal(result.items[1].key, 'bb:202:ob');
+  assert.equal(result.items[1].inStock, true, '新品 inactive 時清倉 Open-Box 仍應保留');
+  assert.equal(result.items[1].ref, 2599.99);
+});
+
 test('Walmart 驗證頁、非 JSON、缺少搜尋結構都不會誤報成功', () => {
   assert.throws(() => walmart.parse('<div id="px-captcha"></div>'), e => e.code === 'blocked');
   for (const body of ['<html></html>', '<script id="__NEXT_DATA__">bad</script>', '<script id="__NEXT_DATA__">{}</script>']) assert.throws(() => walmart.parse(body), e => e.code === 'format');
