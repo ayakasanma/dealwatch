@@ -149,7 +149,7 @@ Chromium 映像：第一次跑正常後，可以把當時的 digest 填進 `CHRO
 sudo docker-compose -f docker-compose.lite.yml up -d
 ```
 
-只跑 `dealwatch`，預設已排除必須依賴瀏覽器的 eBay 與 Micro Center（`--store bb,wm,wt,ne,sd,rd`）。Best Buy、Woot 與社群來源不受影響；Walmart／Newegg 只用直接請求，被擋時沒有瀏覽器可以接手，
+只跑 `dealwatch`，預設已排除必須依賴瀏覽器的 eBay、Micro Center 與已停用公開 RSS 的 Reddit（`--store bb,wm,wt,ne,sd`）。Best Buy、Woot 與 Slickdeals 不受影響；Walmart／Newegg 只用直接請求，被擋時沒有瀏覽器可以接手，
 會自動拉長間隔重試。這種情況也可以讓 NAS 專心跑 Best Buy（把 compose 裡的指令改成
 `["node", "dealwatch.mjs", "ui", "--store", "bb"]`），其餘須瀏覽器的來源留在電腦上跑。
 精簡版只有一個容器，重開機後會自己起來，不需要上面的開機任務。

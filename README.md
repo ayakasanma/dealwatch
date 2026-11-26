@@ -116,8 +116,7 @@ node dealwatch.mjs notify-test
   個別零件可以在 `steals.override` 直接指定撿漏價（目前高階顯卡已依市況設定於 `config.mjs` 的 `steals.override`）。
 - **市價本來就在 MSRP 附近或更低的零件**（多數 CPU）：要比其他賣家的最低價再便宜 10% 以上，
   而且只有新上架或剛降價的才算——一直都是最低價的那個賣家不算。
-- **整機**：售價 ≤ CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價，再加 `buildAllowance`（主機板、電源、機殼、散熱、
-  Windows，預設 $600）。只看顯卡在 `desktopMinGpu`（預設 RX 9070 XT / RTX 5070 Ti）以上的機器，
+- **整機**：售價需低於「CPU + 顯卡 + 記憶體 + SSD 各自的撿漏價 + `buildAllowance`（主機板、電源、機殼、散熱、Windows，預設 $350）」再減 `desktopMargin`（預設 6%）；若為整新品或 open-box，估值會再套用 `desktopUsedDiscount`（預設折 10%）。只看顯卡在 `desktopMinGpu`（預設 RX 9070 XT / RTX 5070 Ti）以上的機器，
   低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆。
 - **筆電**：估不出零件價，用 `config.mjs` 裡的 `steals.rules`，命中任一條就算。目前四條：
   ROG Zephyrus G14（Core Ultra 9 386H / 5070 Ti / 32GB）的 open-box 或整新品低於 $2200、
@@ -153,9 +152,9 @@ MSRP 表裡沒有的型號會退回用市價：Best Buy 全新品目錄的最低
   為避免新上架與小幅調價洗版，eBay 預設關閉「上新」通知（`ebay.alertNew: false`），且需大降價（`ebay.dropPct`，預設 15%）或符合撿漏標準才會通知，並在通知前再開商品頁二次確認非競標／多規格低價且仍在售。
   eBay 的整機多半是賣家自己組的，零件估值不準，預設不算撿漏（只列在表格裡）；要算就在 `ebay.stealCats` 加回 `'desktop'`。
 - **Micro Center**：同樣只能用瀏覽器載入搜尋頁，價格與庫存以 `microcenter.storeId` 那家門市為準（預設 165 Indianapolis）。
-- **Slickdeals、r/buildapcsales**：讀網友回報 deal 的 RSS。每篇貼文當成一件商品，價格、規格、店名從標題解析，
+- **Slickdeals、r/buildapcsales**：Slickdeals 讀關鍵字搜尋 RSS；Reddit 因 2026/11 停用公開 RSS，改由專用瀏覽器載入 `r/buildapcsales/new/` 頁面解析（每輪只載入一次並快取 60 秒，遇到登入牆或驗證時交由使用者手動處理）。每篇貼文當成一件商品，價格、規格、店名從標題與連結解析，
   再套同一套撿漏標準；只看 `feeds.maxAgeHours`（預設 48 小時）內的貼文。表格的「賣家」欄是實際賣的那家店，
-  「開商品頁」會開商品網址（Slickdeals 是討論串）。Reddit 不登入時限流很嚴，一輪只發一個請求。
+  「開商品頁」會開商品網址（Slickdeals 是討論串）。
 - **購物車**：Best Buy 用 `api.bestbuy.com/click/-/<sku>/cart`（open-box 加 `seller_id=BBY_OB&listing_id=<成色>`），
   加完再開結帳頁。Walmart 用 `affil.walmart.com/cart/buynow?offers=<offerId>`，鎖定你在表格看到的那個賣家，
   加完直接往結帳走（沒登入時會停在購物車頁）。Newegg 自營商品亦提供 `AddtoCart.aspx` 加入購物車連結（僅開加入頁，不自動導向結帳）。

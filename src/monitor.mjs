@@ -120,6 +120,8 @@ newegg.configure({ browser: walmartVia === 'http' ? null : wmBrowser });
 const shopBrowser = new Browser({ path: config.walmart.browserPath, profileDir: path.join(ROOT, 'data', 'chrome-profile'), cdpUrl, parent: wmBrowser });
 ebay.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.ebay });
 microcenter.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.microcenter });
+// Reddit 於 2026/11 停用公開 RSS，有瀏覽器時改由專用瀏覽器載入 r/buildapcsales/new/
+reddit.configure({ browser: walmartVia === 'http' ? null : shopBrowser, ...config.reddit });
 function saveWalmartHint() {
   if (walmartVia === 'auto' && walmart.usingBrowser()) state.writeJson('walmart-mode.json', { browserUntil: Date.now() + 6 * 36e5 });
 }
@@ -639,7 +641,7 @@ async function cmdWatch({ ui = false } = {}) {
       status[store] = { ...status[store], scanning: true, paused: false };
       const r = await scanStore(store);
       watchStatus[store] = r.watch;
-      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) || store === 'eb' || store === 'mc' };
+      const summaryOf = { t: Date.now(), ms: r.ms, requests: r.requests, raw: r.raw, scanning: false, viaBrowser: (store === 'wm' && walmart.usingBrowser()) || (store === 'ne' && newegg.usingBrowser()) || (store === 'rd' && reddit.usingBrowser()) || store === 'eb' || store === 'mc' };
       if (failed(r)) {
         if (backoff === 1) await push(config.notify, [], `⚠️ ${STORES[store]} 查詢失敗（${r.errors[0]}），已自動拉長間隔重試`);
         backoff = Math.min(backoff * 2, 16);

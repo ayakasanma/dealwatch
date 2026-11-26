@@ -101,4 +101,43 @@ test('GPU 分類納入 RX 9070 XT，並套用 config.steals.override 撿漏門�
   assert.equal(check('ASUS GeForce RTX 5080 16GB', 1500), true);
   assert.equal(check('ASUS GeForce RTX 5080 16GB', 1501), false);
   assert.equal(check('MSI GeForce RTX 5090 32GB', 3200), true);
+
+  const checkCat = (cat, type, name, price) => {
+    const item = { store: 'bb', key: `bb:${cat}:${name}`, cat, kind: 'new', type, name, price };
+    item.specs = evaluate(config.categories[cat], item);
+    return judge(item, priceOf, config.steals)?.steal;
+  };
+  assert.equal(checkCat('cpu', 'processor', 'AMD Ryzen 7 9800X3D Desktop Processor', 340), true);
+  assert.equal(checkCat('cpu', 'processor', 'AMD Ryzen 7 9800X3D Desktop Processor', 341), false);
+  assert.equal(checkCat('cpu', 'processor', 'AMD Ryzen 9 9950X3D Desktop Processor', 520), true);
+  assert.equal(checkCat('cpu', 'processor', 'Intel Core Ultra 9 285K Processor', 380), true);
+  assert.equal(checkCat('ram', 'memory', 'CORSAIR Vengeance 32GB (2x16GB) DDR5 6000', 280), true);
+  assert.equal(checkCat('ram', 'memory', 'CORSAIR Vengeance 32GB (2x16GB) DDR5 6000', 281), false);
+  assert.equal(checkCat('ram', 'memory', 'G.SKILL Trident Z5 64GB (2x32GB) DDR5 6000', 600), true);
+});
+
+test('整機估值套用 buildAllowance $350、desktopMargin 6% 與非全新 10% 折價', () => {
+  const priceOf = makePricer({ prices: { 'ssd:1000': 99, 'ssd:2000': 199 } }, [], config.steals.override);
+  const checkDesktop = (name, price, { kind = 'new', cond = 'New' } = {}) => {
+    const item = { store: 'bb', key: `bb:desk:${name}:${kind}:${price}`, cat: 'desktop', kind, cond, type: 'gaming desktop', name, price };
+    item.specs = evaluate(config.categories.desktop, item);
+    return judge(item, priceOf, config.steals);
+  };
+
+  // 截圖誤報案例 1：Acer Nitro 60 整新品 $2,458.34 不應判為撿漏
+  const refurb5070ti = checkDesktop('Acer Nitro 60 Gaming Desktop - Intel Core i7-14700F - 32GB DDR5 - NVIDIA GeForce RTX 5070 Ti - 2TB SSD', 2458.34, { kind: 'refurb', cond: 'Refurb Excellent' });
+  assert.equal(refurb5070ti.steal, false);
+  assert.match(refurb5070ti.reason, /Refurb Excellent 折 10%/);
+
+  // 同規格全新 5070 Ti 整機約 $2,100 以下才算撿漏；整新品約 $1,890 以下
+  assert.equal(checkDesktop('Gaming Desktop - Intel Core i7-14700F - 32GB DDR5 - RTX 5070 Ti - 2TB SSD', 2100).steal, true);
+  assert.equal(checkDesktop('Gaming Desktop - Intel Core i7-14700F - 32GB DDR5 - RTX 5070 Ti - 2TB SSD', 2150).steal, false);
+  assert.equal(checkDesktop('Gaming Desktop - Intel Core i7-14700F - 32GB DDR5 - RTX 5070 Ti - 2TB SSD', 1950, { kind: 'refurb', cond: 'Refurb' }).steal, false);
+  assert.equal(checkDesktop('Gaming Desktop - Intel Core i7-14700F - 32GB DDR5 - RTX 5070 Ti - 2TB SSD', 1850, { kind: 'refurb', cond: 'Refurb' }).steal, true);
+
+  // 截圖誤報案例 2：7900X + 5080 + 32GB $2,830 不應判為撿漏
+  assert.equal(checkDesktop('iBUYPOWER Slate Gaming Desktop PC: Ryzen 9 7900X, RTX 5080, 32GB DDR5', 2830).steal, false);
+  // 9800X3D + 5080 + 32GB + 1TB 全新整機約 $2,400 以下才算撿漏
+  assert.equal(checkDesktop('Gaming Desktop PC Ryzen 7 9800X3D RTX 5080 32GB DDR5 1TB SSD', 2390).steal, true);
+  assert.equal(checkDesktop('Gaming Desktop PC Ryzen 7 9800X3D RTX 5080 32GB DDR5 1TB SSD', 2450).steal, false);
 });

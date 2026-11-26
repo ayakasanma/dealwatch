@@ -296,3 +296,69 @@ test('價格解析規則', () => {
   assert.equal(redditPrice('[GPU] Foo - $99 ($79 after rebate)'), 79);
   assert.equal(redditPrice('Apple - $1,999.99 ($2,499.99 - $500)'), 1999.99);
 });
+
+test('Reddit：瀏覽器模式解析新版 shreddit-post 與舊版 thing HTML，過濾 OOS flair', async () => {
+  const newHtml = `<html><body>
+    <shreddit-post id="t3_abc123" post-title="[GPU] PNY RTX 5080 16GB - $1,199.99" permalink="/r/buildapcsales/comments/abc123/pny_rtx_5080/" content-href="https://www.bestbuy.com/site/pny/1.p" created-timestamp="2026-11-26T05:00:00Z">
+      <div slot="post-flair"><span>GPU</span></div>
+    </shreddit-post>
+    <shreddit-post id="t3_oos999" post-title="[GPU] MSI RTX 5080 - $999" permalink="/r/buildapcsales/comments/oos999/msi/" content-href="https://www.newegg.com/p/1" created-timestamp="2026-11-26T05:05:00Z">
+      <div slot="post-flair"><span>Expired</span></div>
+    </shreddit-post>
+  </body></html>`;
+  let calls = 0;
+  const fakeBrowser = {
+    hold: true,
+    keepOpen: false,
+    async html(url) { calls++; assert.equal(url, 'https://www.reddit.com/r/buildapcsales/new/'); return newHtml; },
+    async focus() {},
+  };
+  reddit.configure({ browser: fakeBrowser });
+  try {
+    assert.equal(reddit.usingBrowser(), true);
+    const { items } = await reddit.search({ query: 'gpu', maxAgeHours: ALL });
+    assert.equal(calls, 1);
+    assert.equal(fakeBrowser.hold, false);
+    assert.equal(items.length, 2);
+    const gpu = items.find(i => i.key === 'rd:abc123');
+    assert.equal(gpu.price, 1199.99);
+    assert.equal(gpu.seller, 'Best Buy');
+    assert.equal(gpu.url, 'https://www.bestbuy.com/site/pny/1.p');
+    assert.equal(gpu.thread, 'https://www.reddit.com/r/buildapcsales/comments/abc123/pny_rtx_5080/');
+    assert.equal(gpu.inStock, true);
+    assert.equal(items.find(i => i.key === 'rd:oos999').inStock, false);
+
+    // 舊版 Reddit HTML 亦可解析
+    const oldHtml = `<html><body>
+      <div class="thing" data-fullname="t3_old777" data-permalink="/r/buildapcsales/comments/old777/x/" data-url="https://www.microcenter.com/product/1/x" data-timestamp="${Date.parse('2026-11-26T04:00:00Z')}">
+        <a class="title" href="https://www.microcenter.com/product/1/x">[CPU] Ryzen 7 9800X3D - $339.99</a>
+      </div>
+    </body></html>`;
+    const oldRecs = reddit.parseHtml(oldHtml);
+    assert.equal(oldRecs.length, 1);
+    assert.equal(oldRecs[0].item.key, 'rd:old777');
+    assert.equal(oldRecs[0].item.price, 339.99);
+    assert.equal(oldRecs[0].item.seller, 'Micro Center');
+  } finally {
+    reddit.configure({});
+  }
+});
+
+test('Reddit：瀏覽器遇安全封鎖／登入牆時 hold 並丟 Blocked', async () => {
+  let focused = false;
+  const fakeBrowser = {
+    hold: false,
+    keepOpen: false,
+    async html() { return '<html><body><h1>Welcome to Reddit</h1><p>You have been blocked by network security.</p></body></html>'; },
+    async focus() { focused = true; },
+  };
+  reddit.configure({ browser: fakeBrowser });
+  try {
+    await assert.rejects(reddit.search({ query: 'gpu' }), err => err instanceof Blocked && /人機驗證/.test(err.message));
+    assert.equal(fakeBrowser.hold, true);
+    assert.equal(fakeBrowser.keepOpen, true);
+    assert.equal(focused, true);
+  } finally {
+    reddit.configure({});
+  }
+});

@@ -1,12 +1,12 @@
 # 精簡版：只有 dealwatch，沒有瀏覽器容器。給記憶體小、跑不動 Chromium 的 NAS 用。
-# 預設只監控不須瀏覽器的來源（排除 eBay 與 Micro Center）；Walmart 只用直接請求，被擋時會自動拉長間隔重試。
+# 預設只監控不須瀏覽器的來源（排除 eBay、Micro Center 與已停用公開 RSS 的 Reddit）；Walmart 只用直接請求，被擋時會自動拉長間隔重試。
 # 用法：docker compose -f docker-compose.lite.yml up -d
 services:
   dealwatch:
     image: node:22-alpine
     container_name: dealwatch
     working_dir: /app
-    command: ["node", "dealwatch.mjs", "ui", "--store", "bb,wm,wt,ne,sd,rd"]
+    command: ["node", "dealwatch.mjs", "ui", "--store", "bb,wm,wt,ne,sd"]
     env_file: .env
     environment:
       - TZ=${TZ:-America/Chicago}

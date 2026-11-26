@@ -107,7 +107,7 @@ export function msrpOf(key, table) {
 // 估值。估不出來回傳 null。
 // 參考價：你在 override 指定的最優先；否則 MSRP 與市價取低者。
 // 被炒高的零件（顯卡、記憶體）由 MSRP 把關，本來就賣得比 MSRP 便宜的（舊款 CPU）由市價把關。
-export function appraise(item, priceOf, { margin = 0.1, msrpPremium = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
+export function appraise(item, priceOf, { margin = 0.1, desktopMargin = 0, desktopUsedDiscount = 0, msrpPremium = 0, tooGood = 0.5, override = {}, msrp, desktopMinGpu } = {}, ownPrice) {
   // 完全沒有別人在賣的零件，就拿它自己原本的價格當行情，不然只此一家的東西會永遠被拿去跟 MSRP 比
   const street = (key, self) => priceOf(key, item.key) ?? (self ? ownPrice : undefined);
   const ref = (key, self = false) => {
@@ -143,7 +143,7 @@ export function appraise(item, priceOf, { margin = 0.1, msrpPremium = 0, tooGood
     if (known(cpuK) && known(gpuK)) {
       if (msrp?.buildAllowance) parts.push(['主機板/電源/機殼等', msrp.buildAllowance]);
       label = '自組估值';
-      useMargin = 0;
+      useMargin = desktopMargin;
     } else { label = '零件市價'; useMargin = margin; }
   } else {
     const key = item.cat === 'cpu' ? `cpu:${cpuKey(item.specs.cpu)}` : item.cat === 'gpu' ? `gpu:${item.specs.gpu}` : item.cat === 'ram' ? ramKey(item.name) : '';
@@ -162,13 +162,16 @@ export function appraise(item, priceOf, { margin = 0.1, msrpPremium = 0, tooGood
     useMargin = margin;
   }
 
-  const sum = Math.round(parts.reduce((s, [, p]) => s + p, 0));
+  const rawSum = Math.round(parts.reduce((s, [, p]) => s + p, 0));
+  const usedAdj = item.cat === 'desktop' && item.kind !== 'new' && desktopUsedDiscount > 0;
+  const sum = usedAdj ? Math.round(rawSum * (1 - desktopUsedDiscount)) : rawSum;
   const below = Math.round((1 - item.price / sum) * 100);
   // 整機只看高階顯卡的：低階主機的其餘零件沒那麼值錢，用同一個加總會太寬鬆
   const tierOk = item.cat !== 'desktop' || !desktopMinGpu || item.specs.gpuScore >= gpuScore(desktopMinGpu);
   // 低於估值一半通常是假貨或標題解析錯誤，不當成撿漏
   const steal = tierOk && Math.floor(item.price) <= sum * (1 - useMargin) && item.price >= sum * tooGood;
-  const reason = `${label} $${sum}${parts.length > 1 ? ' = ' + parts.map(([n, p]) => `${n} ${Math.round(p)}`).join(' + ') : ''}，售價${below >= 0 ? '低' : '高'} ${Math.abs(below)}%`;
+  const usedNote = usedAdj ? `（${item.cond || '非全新'} 折 ${Math.round(desktopUsedDiscount * 100)}%）` : '';
+  const reason = `${label} $${sum}${parts.length > 1 ? ' = ' + parts.map(([n, p]) => `${n} ${Math.round(p)}`).join(' + ') : ''}${usedNote}，售價${below >= 0 ? '低' : '高'} ${Math.abs(below)}%`;
   return { sum, below, steal, reason };
 }
 
